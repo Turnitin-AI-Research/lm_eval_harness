@@ -1,0 +1,26 @@
+{
+  "files.watcherExclude": {
+    "*.gz": true,
+    "*.h5": true,
+    "*.tgz": true,
+    "**/__pycache__/**": true,
+    "**/_*/**": true,
+    "**/_cache/**": true,
+    "**/_examples*/**": true,
+    "**/_models/**": true,
+    "**/.git/**": true,
+    "**/.ipynb_checkpoints/**": true,
+    "**/.local/**": true,
+    "**/.mypy_cache/**": true,
+    "**/.venv_*/**": true,
+    "**/.venv/**": true,
+    "**/.vscode/**": true,
+    "**/*cache/**": true,
+    "**/data/**": true,
+    "**/lm_cache/**": true,
+    "**/models/**": true,
+    "**/training_state/**": true,
+    "**/wandb/**": true
+  },
+  "files.trimFinalNewlines": true
+}

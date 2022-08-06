@@ -184,6 +184,10 @@ class BaseLM(LM):
 
         return self._loglikelihood_tokens(new_reqs)
 
+    def distributed_encoding(self, requests):
+        """Distributive encode context and entailment choices. Compare and return distribution over choices."""
+        pass
+
     def loglikelihood_rolling(self, requests):
         # TODO: Implement caching once we've confirmed the perplexity implementation
         # TODO: automatic batch size detection for vectorization

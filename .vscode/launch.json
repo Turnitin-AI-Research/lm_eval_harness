@@ -1,0 +1,113 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "write_out 5.py",
+            "type": "python",
+            "request": "launch",
+            "program": "write_out copy.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--tasks",
+                "all_tasks",
+                "--num_fewshot",
+                "5",
+                "--num_examples",
+                "10",
+                "--output_base_path",
+                "../input_examples"
+            ],
+            "cwd": "${workspaceFolder}/scripts"
+        },
+        {
+            "name": "write_out 0.py",
+            "type": "python",
+            "request": "launch",
+            "program": "write_out copy.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--tasks",
+                "all_tasks",
+                "--num_fewshot",
+                "0",
+                "--num_examples",
+                "10",
+                "--output_base_path",
+                "../input_examples_0"
+            ],
+            "cwd": "${workspaceFolder}/scripts"
+        },
+        {
+            "name": "write_out 5 test.py",
+            "type": "python",
+            "request": "launch",
+            "program": "write_out copy.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--tasks",
+                "all_tasks",
+                "--num_fewshot",
+                "5",
+                "--num_examples",
+                "10",
+                "--output_base_path",
+                "../input_examples_test",
+                "--sets",
+                "test"
+            ],
+            "cwd": "${workspaceFolder}/scripts"
+        },
+        {
+            "name": "write_out 5 train.py",
+            "type": "python",
+            "request": "launch",
+            "program": "write_out copy.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--tasks",
+                "all_tasks",
+                "--num_fewshot",
+                "5",
+                "--num_examples",
+                "10",
+                "--output_base_path",
+                "../input_examples_train",
+                "--sets",
+                "train"
+            ],
+            "cwd": "${workspaceFolder}/scripts"
+        },
+        {
+            "name": "main",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "gpt2",
+                "--tasks",
+                "hellaswag",
+                "--num_fewshot",
+                "5"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+    ]
+}

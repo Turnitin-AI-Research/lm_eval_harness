@@ -15,6 +15,7 @@ Homepage: https://rowanzellers.com/hellaswag/
 """
 import re
 from lm_eval.base import MultipleChoiceTask
+from lm_eval.dist_enc import DistEncMixin
 
 
 _CITATION = """
@@ -75,3 +76,15 @@ class HellaSwag(MultipleChoiceTask):
 
     def doc_to_decontamination_query(self, doc):
         return doc["query"]
+
+
+class HellaSwagDist(DistEncMixin, HellaSwag):
+    def _process_doc(self, doc):
+        out_doc = super()._process_doc(doc)
+        # Extract all hints so that they may be optionally individually encoded without text
+        out_doc['hints'] = []
+        # Segments including possible hints so that they may be individually encoded (e.g 'Question: <question text>')
+        out_doc['segments'] = [out_doc['query']]
+        # Indices of one or more correct targets from out_doc['choices']
+        out_doc['gold_options'] = [out_doc['gold']]
+        return out_doc

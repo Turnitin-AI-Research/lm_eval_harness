@@ -41,11 +41,17 @@ class HFLM(BaseLM):
         self.gpt2.eval()
 
         # pretrained tokenizer for neo is broken for now so just hard-coding this to gpt2
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(
-            pretrained if tokenizer is None else tokenizer,
-            revision=revision,
-            subfolder=subfolder,
-        )
+        if subfolder is not None:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                pretrained if tokenizer is None else tokenizer,
+                revision=revision,
+                subfolder=subfolder,
+            )
+        else:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                pretrained if tokenizer is None else tokenizer,
+                revision=revision
+            )
 
         assert isinstance(
             self.tokenizer,
@@ -129,3 +135,7 @@ class HFLM(BaseLM):
 
 # for backwards compatibility
 GPT2LM = HFLM
+
+class DistributedLM(HFLM):
+    """Wrapper around HFLM that perfoms distributed encoding instead of cross-encoding"""
+    pass
