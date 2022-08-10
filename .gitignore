@@ -5,3 +5,4 @@ lm_cache
 .idea
 .venv*/
 input_examples*/
+.vscode/

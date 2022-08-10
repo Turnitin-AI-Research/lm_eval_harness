@@ -15,7 +15,7 @@ Homepage: https://rowanzellers.com/hellaswag/
 """
 import re
 from lm_eval.base import MultipleChoiceTask
-from lm_eval.dist_enc import DistEncMixin
+from lm_eval.dist_enc import DistEncTaskMixin, SegmentedSample
 
 
 _CITATION = """
@@ -78,13 +78,20 @@ class HellaSwag(MultipleChoiceTask):
         return doc["query"]
 
 
-class HellaSwagDist(DistEncMixin, HellaSwag):
+class HellaSwagDist(DistEncTaskMixin, HellaSwag):
+    def __init__(self) -> None:
+        super().__init__()
+        self.encoding_scheme: str = 'concat_all_context'
+        # assert self.encoding_scheme in ['concat_all_examples', 'concat_each_example', 'distribute_each_example']
+        self.SEGMENT_DELIMITER: str = '\n'
+        self.ANSWER_DELIMITER: str = ' '
+
     def _process_doc(self, doc):
-        out_doc = super()._process_doc(doc)
+        out_doc = SegmentedSample(super()._process_doc(doc))
         # Extract all hints so that they may be optionally individually encoded without text
         out_doc['hints'] = []
-        # Segments including possible hints so that they may be individually encoded (e.g 'Question: <question text>')
+        # Segments (including hints) so that they may be individually encoded (e.g 'Question: <question text>')
         out_doc['segments'] = [out_doc['query']]
         # Indices of one or more correct targets from out_doc['choices']
         out_doc['gold_options'] = [out_doc['gold']]
-        return out_doc
+        return self.reorg_for_encoding(out_doc)

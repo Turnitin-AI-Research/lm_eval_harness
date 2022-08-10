@@ -105,7 +105,9 @@
                 "--tasks",
                 "hellaswag",
                 "--num_fewshot",
-                "5"
+                "5",
+                "--limit", "10",
+                "--no_cache"
             ],
             "cwd": "${workspaceFolder}"
         },

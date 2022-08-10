@@ -1,5 +1,5 @@
 import abc
-from typing import Iterable
+from typing import Iterable, List
 import numpy as np
 import random
 import re
@@ -106,6 +106,19 @@ class LM(abc.ABC):
         """
         pass
 
+    def distributed_encoding_similarity(self, requests):
+        """Compute similarity of choices from multiple choices.
+
+        :param requests: list
+            A list of pairs (context, doc)
+            context: List of context SegmentedSamples: Optional[description] + [few-shot samples]
+            doc: The query doc SegmentedSample
+        :return:
+            A list of results, [Result], one per request
+            Result: A list of similarity scores one per choice [match,]
+        """
+        pass
+
     @classmethod
     def create_from_arg_string(cls, arg_string, additional_config=None):
         additional_config = {} if additional_config is None else additional_config
@@ -147,6 +160,9 @@ class BaseLM(LM):
     def tok_encode(self, string: str):
         pass
 
+    # def tok_encode_batch(self, strings: List[str]):
+    #     raise NotImplementedError
+
     @abstractmethod
     def tok_decode(self, tokens: Iterable[int]):
         pass
@@ -183,10 +199,6 @@ class BaseLM(LM):
             new_reqs.append(((context, continuation), context_enc, continuation_enc))
 
         return self._loglikelihood_tokens(new_reqs)
-
-    def distributed_encoding(self, requests):
-        """Distributive encode context and entailment choices. Compare and return distribution over choices."""
-        pass
 
     def loglikelihood_rolling(self, requests):
         # TODO: Implement caching once we've confirmed the perplexity implementation
@@ -848,6 +860,7 @@ REQUEST_RETURN_LENGTHS = {
     "loglikelihood": 2,
     "greedy_until": None,
     "loglikelihood_rolling": None,
+    "distributed_encoded_similarity": None
 }
 
 
@@ -858,9 +871,9 @@ class Request:
                 "The request type {} is not implemented!".format(request_type)
             )
 
-        self.request_type = request_type
+        self.request_type = request_type  # Request function e.g. loglikelihood, loglikelihood_rolling etc.
         self.args = args
-        self.index = index
+        self.index = index  # indexes sequence of metrics returned by the request_type function (e.g. loglikelihood)
 
     def __iter__(self):
         if REQUEST_RETURN_LENGTHS[self.request_type] is None:

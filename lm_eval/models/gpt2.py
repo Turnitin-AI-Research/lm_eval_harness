@@ -1,3 +1,4 @@
+from typing import List
 import transformers
 import torch
 from lm_eval.base import BaseLM
@@ -136,6 +137,12 @@ class HFLM(BaseLM):
 # for backwards compatibility
 GPT2LM = HFLM
 
+
 class DistributedLM(HFLM):
     """Wrapper around HFLM that perfoms distributed encoding instead of cross-encoding"""
+
+    def __init__(self, *args, reduction_scheme: str = 'last', **kwargs):
+        super().__init__(*args, **kwargs)
+        assert reduction_scheme in ['last', 'mean']
+        self.reduction_scheme = reduction_scheme  # 'last' or 'mean'
     pass

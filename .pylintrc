@@ -23,6 +23,8 @@ disable=consider-using-enumerate,
   too-many-statements,
   unused-import,
   unnecessary-pass,
+  unused-variable,
+  useless-super-delegation,
   missing-function-docstring,  # lm-evaluation-harness code doesn't enforce this
   missing-class-docstring,  # lm-evaluation-harness code doesn't enforce this
   missing-module-docstring  # lm-evaluation-harness code doesn't enforce this
