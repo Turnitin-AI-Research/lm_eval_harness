@@ -69,13 +69,15 @@ def simple_evaluate(
         assert isinstance(model, lm_eval.base.LM)
         lm = model
 
-    if not no_cache:
+    if (not no_cache) and limit is None:
         lm = lm_eval.base.CachingLM(
             lm,
             "lm_cache/"
             + model
             + "_"
             + model_args.replace("=", "-").replace(",", "_").replace("/", "-")
+            + "_"
+            + task_args.replace("=", "-").replace(",", "_").replace("/", "-")
             + ".db",
         )
 

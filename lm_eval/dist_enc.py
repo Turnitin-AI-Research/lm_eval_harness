@@ -187,16 +187,18 @@ class DistEncTaskMixin:
 
 
 class DistEncLMMixin:
-    WORD_AGG_SCHEME: str = 'mean'  # last or mean
+    WORD_AGG_SCHEME: str = None  # last or mean
     SEGMENT_AGG_SCHEME: str = 'mean'
     EXAMPLE_AGG_SCHEME: str = 'mean'
-    SIMILARITY_FUNC: str = 'dot_product'
+    SIMILARITY_FUNC: str = None  # 'cosine_sim' or 'dot_product'
+    NORM: str = None  # p2 or layer
 
     def verify_config(self):
         assert self.WORD_AGG_SCHEME is not None
         assert self.SEGMENT_AGG_SCHEME == 'mean'
         assert self.EXAMPLE_AGG_SCHEME == 'mean'
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']
+        assert self.NORM in ['p2', 'layer']
 
     def tok_encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string, add_special_tokens=False)
