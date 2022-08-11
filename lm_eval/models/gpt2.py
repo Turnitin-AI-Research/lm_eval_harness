@@ -1,7 +1,9 @@
-from typing import List
+from optparse import Option
+from typing import List, Optional
 import transformers
 import torch
 from lm_eval.base import BaseLM
+from lm_eval.dist_enc import DistEncLMMixin
 
 
 class HFLM(BaseLM):
@@ -138,11 +140,22 @@ class HFLM(BaseLM):
 GPT2LM = HFLM
 
 
-class DistributedLM(HFLM):
+class DistributedLM(DistEncLMMixin, HFLM):
     """Wrapper around HFLM that perfoms distributed encoding instead of cross-encoding"""
 
-    def __init__(self, *args, reduction_scheme: str = 'last', **kwargs):
+    def __init__(self, *args,
+                 WORD_AGG_SCHEME: str = None,
+                 SEGMENT_AGG_SCHEME: Optional[str] = None,
+                 EXAMPLE_AGG_SCHEME: Optional[str] = None,
+                 SIMILARITY_FUNC: Optional[str] = None,
+                 **kwargs):
         super().__init__(*args, **kwargs)
-        assert reduction_scheme in ['last', 'mean']
-        self.reduction_scheme = reduction_scheme  # 'last' or 'mean'
-    pass
+        if WORD_AGG_SCHEME is not None:
+            self.WORD_AGG_SCHEME = WORD_AGG_SCHEME
+        if SEGMENT_AGG_SCHEME is not None:
+            self.SEGMENT_AGG_SCHEME = SEGMENT_AGG_SCHEME
+        if EXAMPLE_AGG_SCHEME is not None:
+            self.EXAMPLE_AGG_SCHEME = EXAMPLE_AGG_SCHEME
+        if SIMILARITY_FUNC is not None:
+            self.SIMILARITY_FUNC = SIMILARITY_FUNC
+        self.verify_args()

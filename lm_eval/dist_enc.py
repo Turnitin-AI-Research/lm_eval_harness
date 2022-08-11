@@ -1,26 +1,31 @@
 """Utilities for distributed encoding"""
 from typing import Dict, List
-import numpy as np
+from collections import UserDict
 import torch
 from lm_eval.base import rf
+from tqdm import tqdm
 
 
-class SegmentedSample(Dict):
+class SegmentedSample(UserDict):
     """Segmented Sample class that enables empty instantiation and verification"""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, task, **kwargs):
+        super().__init__(*args, **kwargs)
         # self['query']: str  # Main input text
         # self['gold']: int  # Index of correct answer if there's only one.
         # self['gold_indices']: List[int]  # Multiple indices of correct answers if there are multiple
         # self['choices']: List[str]  # choice strings
         # self['hints']: List[str]  # formatting cues, hints
         # self['segments']: List[str]  # query segments to encode independently
-        super().__init__(*args, **kwargs)
+        self['task'] = task  # Pointer to task for passing in configuration to the model
 
+    @property
+    def task(self):
+        return self['task']
 
-class MCSimilarityScores(List[float]):
-    """Multiple Choice Match scores output by distributed_encoding_similarity"""
-    pass
+    @task.setter
+    def task(self, t):
+        self['task'] = t
 
 
 class DistEncTaskMixin:
@@ -28,22 +33,36 @@ class DistEncTaskMixin:
     Mixin for Distributed Encoding Task.
     Refer to new_multiple_choice_task.py for software design context.
     """
+    SEGMENT_DELIMITER: str = '\n'
+    ANSWER_DELIMITER: str = ' '
+    ENCODING_SCHEME: str = 'concat_all_examples'  # 'concat_all_examples', 'concat_each_example', 'distribute_each_example'
 
-    def reorg_for_encoding(self, doc: SegmentedSample) -> SegmentedSample:
+    def verify_args(self):
+        """Verify arguments collected from various mixins and objects"""
+        assert self.SEGMENT_DELIMITER is not None
+        assert self.ANSWER_DELIMITER is not None
+        assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'distribute_each_example']
+
+    def process_segments(self, doc: SegmentedSample) -> SegmentedSample:
         """Reorganize doc segments based on encoding scheme"""
-        if self.encoding_scheme in ['concat_all_examples', 'concat_each_example']:
+        if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example'] and (len(doc['segments']) > 1):
             out_doc = doc.copy()
-            out_doc['segments'] = self.SEGMENT_DELIMITER.join(doc['segments'])
-        return out_doc
-
-    def _reorg_for_fewshot(self, doc: SegmentedSample) -> SegmentedSample:
-        """Reorganize a doc as a fewshot example"""
-        if self.encoding_scheme in ['concat_all_examples', 'concat_each_example']:
-            assert len(doc['segments']) == 1
-            out_doc = SegmentedSample(
-                segments=[doc['segments'][0] + self.ANSWER_DELIMITER + doc['choices'][doc['gold']]])
+            out_doc['segments'] = [self.SEGMENT_DELIMITER.join(doc['segments'])]
+            return out_doc
         else:
-            out_doc = SegmentedSample(segments=doc['segments'] + [doc['choices'][doc['gold']]])
+            return doc
+
+    def _make_fewshotex(self, doc: SegmentedSample, exclude_answer: bool = False) -> SegmentedSample:
+        """Reorganize a doc as a fewshot example. Remove all unnecessary info."""
+        doc = self.process_segments(doc)
+        if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example']:
+            assert len(doc['segments']) == 1
+            context = doc['segments'][0]
+            answer = self.ANSWER_DELIMITER + doc['choices'][doc['gold']] if (exclude_answer or 'choices' in doc) else ''
+            out_doc = SegmentedSample(task=doc.task, segments=[context + answer])
+        else:
+            answer = [doc['choices'][doc['gold']]] if (exclude_answer or 'choices' in doc) else []
+            out_doc = SegmentedSample(task=doc.task, segments=doc['segments'] + answer)
         return out_doc
 
     def fewshot_context(
@@ -58,7 +77,8 @@ class DistEncTaskMixin:
         :param num_fewshot: int
             The number of fewshot examples to provide in the returned context string.
         :param provide_description: bool
-            Not implemented, and this option is deprecated and will be removed in a future version in favor of a different description providing method
+            Not implemented, and this option is deprecated and will be removed in a future version in favor of a
+            different description providing method
         :param rnd: random.Random
             The pseudo-random number generator used to randomly sample examples.
             WARNING: This is currently a required arg although it's optionalized with a default `None`.
@@ -82,11 +102,10 @@ class DistEncTaskMixin:
                 "WARNING: provide_description is deprecated and will be removed in a future version in favor of description_dict"
             )
 
-        # description = description + "\n\n" if description else ""
-        description = None if not description else SegmentedSample(segments=[description])
+        description = [] if not description else [
+            self._make_fewshotex(SegmentedSample(task=doc.task, segments=[description]))]
 
         if num_fewshot == 0:
-            # labeled_examples = ""
             fewshotex = []
         else:
             # for sets with no training docs, draw from other set *but ensure no overlap with current doc*
@@ -105,24 +124,16 @@ class DistEncTaskMixin:
                 # get rid of the doc that's the one we're evaluating, if it's in the fewshot
                 fewshotex = [x for x in fewshotex if x != doc][:num_fewshot]
 
-            context = [self._reorg_for_fewshot(description)] + [
-                self._reorg_for_fewshot(example) for example in fewshotex] + [doc]
-            if self.encoding_scheme == 'concat_all_examples':
-                # Merge all samples into one
-                context = [SegmentedSample(
-                    segments=[segment for example in context for segment in example['segments']])]
-            # labeled_examples = (
-            #     "\n\n".join(
-            #         [
-            #             self.doc_to_text(doc) + self.doc_to_target(doc)
-            #             for doc in fewshotex
-            #         ]
-            #     )
-            #     + "\n\n"
-            # )
+        context = description + [
+            self._make_fewshotex(example) for example in fewshotex] + [
+            self._make_fewshotex(doc, exclude_answer=True)]
 
-        # example = self.doc_to_text(doc)
-        # return description + labeled_examples + example
+        if self.ENCODING_SCHEME == 'concat_all_examples':
+            # Merge all samples into one
+            context = [self._make_fewshotex(
+                SegmentedSample(
+                    task=doc.task,
+                    segments=[segment for example in context for segment in example['segments']]))]
         return context
 
     def construct_requests(self, doc: SegmentedSample, ctx: List[SegmentedSample]):
@@ -151,9 +162,10 @@ class DistEncTaskMixin:
 
         # return lls
 
-    def process_results(self, doc: SegmentedSample, results: MCSimilarityScores):
+    def process_results(self, doc: SegmentedSample, results: List[torch.Tensor]):
         gold = doc["gold_indices"]
-        acc = 1.0 if np.argmax(results) in gold else 0.0
+        assert len(results) == 1
+        acc = 1.0 if torch.argmax(results[0]) in gold else 0.0
 
         return {
             "acc": acc
@@ -161,8 +173,19 @@ class DistEncTaskMixin:
 
 
 class DistEncLMMixin:
-    def tok_encode(self, string: str) -> torch.Tensor:
-        return self.tokenizer.encode(string, add_special_tokens=False, return_tensors='pt')  # (N, T)
+    WORD_AGG_SCHEME: str = 'mean'  # last or mean
+    SEGMENT_AGG_SCHEME: str = 'mean'
+    EXAMPLE_AGG_SCHEME: str = 'mean'
+    SIMILARITY_FUNC: str = 'dot_product'
+
+    def verify_args(self):
+        assert self.WORD_AGG_SCHEME is not None
+        assert self.SEGMENT_AGG_SCHEME == 'mean'
+        assert self.EXAMPLE_AGG_SCHEME == 'mean'
+        assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']
+
+    def tok_encode(self, string: str) -> List[int]:
+        return self.tokenizer.encode(string, add_special_tokens=False)
 
     def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, torch.Tensor]:
         # WARNING: August 2022: cannot rely on return_length=True because returned lengths are incorrect
@@ -190,49 +213,71 @@ class DistEncLMMixin:
         seqs = [seq + [0] * (max_len - len(seq)) for seq in seqs]
 
         return {
-            'input_ids': torch.tensor(seqs, dtype=torch.long, device=self.device),
-            'seq_lens': torch.tensor(seqs, dtype=torch.long, device=self.device),
+            'input_ids': torch.tensor(seqs, dtype=torch.long, device=self.device),  # (N,T)
+            'seq_lens': torch.tensor(seq_lens, dtype=torch.long, device=self.device),  # (N,)
             'attention_mask': torch.tensor([[1] * len + [0] * (max_len - len) for len in seq_lens],
-                                           dtype=torch.long, device=self.device)
+                                           dtype=torch.long, device=self.device)  # (N,T)
         }
 
-    def _reduce_concept_sequences(self, model_output: Dict) -> torch.Tensor:
-        """Aggregate a sequence of concept vectors into a single concept vector"""
+    def _reduce_word_sequences(self, model_output: Dict, model_input: Dict) -> torch.Tensor:
+        """Aggregate a sequence of word vectors into a single concept vector
+
+        :param model_output: Dict.
+            HuggingFace model_output dict.
+        :param model_input: Dict
+            Model input dict
+        :return: torch.Tensor, shape = (batch_size, hidden_size)
+            Each sequence in the batch reduced to an embedding of size hidden_size
+        """
         concept_seqs = model_output['hidden_states'][-1]  # (batch, padding-len, hidden_size)
-        if self.reduction_scheme == 'last':
-            aggregated_vectors = concept_seqs[:, model_output['seq_lens'] - 1, :]  # (batch, hidden_size)
-        elif self.reduction_scheme == 'mean':
-            aggregated_vectors = (concept_seqs * model_output['attention_mask']).sum() / model_output['seq_lens']
+        if self.WORD_AGG_SCHEME == 'last':
+            aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
+                                              for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
+        elif self.WORD_AGG_SCHEME == 'mean':
+            aggregated_vectors = ((concept_seqs * model_input['attention_mask'].unsqueeze(-1)).sum(dim=1)
+                                  / model_input['seq_lens'].unsqueeze(-1))
         else:
             raise NotImplementedError
         return aggregated_vectors  # (batch, hidden_size)
 
-    def _embed_sample(self, sample: SegmentedSample, include_choices: bool = False) -> SegmentedSample:
-        segments = self._tok_batch_encode(sample['segments'])  # (batch, padding_len)
-        choices = self._tok_batch_encode(sample['choices'])  # (batch, padding_len)
-
-        # Transformer encode
-        segments = self.gpt2(input_ids=segments['input_ids'],
-                             attention_mask=segments['attention_mask'],
-                             output_hidden_states=True,
-                             return_dict=True)
-        segment_embeddings = self._reduce_concept_sequences(segments)  # (batch, hidden_size)
-        sample['embedding'] = segment_embeddings.mean()
-        if include_choices:
-            choice = self.gpt2(input_ids=choices['input_ids'][[sample['gold']], :],
-                               attention_mask=choices['attention_mask'],
-                               output_hidden_states=True,
-                               return_dict=True)
-            segment_embeddings = segment_embeddings.cat(choice, dim=0)
-        else:
-            choices = self.gpt2(input_ids=choices['input_ids'][sample['gold_indices'], :],
-                                attention_mask=choices['attention_mask'],
-                                output_hidden_states=True,
-                                return_dict=True)
-            sample['choices_embeddings'] = self._reduce_concept_sequences(choices)
+    def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
+        """Embed segments if present, into a single embedding.
+        If choices are present, then embed each into a single vector."""
+        if 'segments' in sample and sample['segments']:
+            model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padding_len)
+            model_output = self.gpt2(input_ids=model_input['input_ids'],
+                                     attention_mask=model_input['attention_mask'],
+                                     output_hidden_states=True,
+                                     return_dict=True)
+            segment_embeddings = self._reduce_word_sequences(
+                model_output, model_input)  # (#segments, hidden_size)
+            if self.SEGMENT_AGG_SCHEME == 'mean':
+                sample['context_embedding'] = segment_embeddings.mean(dim=0)  # (hidden_size,)
+            else:
+                raise NotImplementedError
+        if 'choices' in sample and sample['choices']:
+            model_input = self._tok_batch_encode(sample['choices'])  # (#choices, padding_len)
+            model_output = self.gpt2(input_ids=model_input['input_ids'],
+                                     attention_mask=model_input['attention_mask'],
+                                     output_hidden_states=True,
+                                     return_dict=True)
+            sample['choices_embeddings'] = self._reduce_word_sequences(
+                model_output, model_input)  # (#choices, hidden_size)
         return sample
 
-    def distributed_encoding_similarity(self, requests_args):
+    def _embed_context(self, examples: List[SegmentedSample]) -> torch.Tensor:
+        """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
+        examples = [self._embed_sample(example) for example in examples]
+        if len(examples) > 1:
+            if self.EXAMPLE_AGG_SCHEME == 'mean':
+                context_embedding = torch.stack([example['context_embedding'] for example in examples]).mean(dim=0)
+            else:
+                raise NotImplementedError
+        else:
+            context_embedding = examples[0]['context_embedding']
+        return context_embedding  # (hidden_size,)
+
+    def distributed_encoding_similarity(self, requests_args) -> List[torch.Tensor]:
         """Compute similarity of choices.
 
         :param requests: list
@@ -240,26 +285,24 @@ class DistEncLMMixin:
             context: List of context SegmentedSamples: Optional[description] + [few-shot samples] + [doc]
             doc: The query doc SegmentedSample
         :return:
-            A list of results, [MCSimilarityScores], one per request (doc)
-            MCSimilarityScores: A list of similarity scores of a request (doc), one per choice [score,]
+            A list of results, [torch.Tensor], one per request (doc)
+            torch.Tensor: A list of similarity scores of a request (doc), one per choice [score,]
         """
-        # Eschewing batching in order to reduce complexity
-        encoded_context
-        for context, doc in requests_args:
-            encoded_segments = [self.tok_encode(segment) for segment in request['segments']]
-            encoded_choices = [self.tok_encode(choice) for choice in request['choices']]
-
-    def loglikelihood(self, requests):
-        new_reqs = []
-        for context, continuation in requests:
-            if context == "":
-                # end of text as context
-                context_enc = [self.eot_token_id]
-            else:
-                context_enc = self.tok_encode(context)
-
-            continuation_enc = self.tok_encode(continuation)
-
-            new_reqs.append(((context, continuation), context_enc, continuation_enc))
-
-        return self._loglikelihood_tokens(new_reqs)
+        # Eschewing batching in favor of simplicity for now
+        results = []
+        self.gpt2.eval()
+        with torch.no_grad():
+            for context, doc in tqdm(requests_args):
+                context_embedding = self._embed_context(context)  # (hidden_size,)
+                doc = doc.copy()
+                del doc['segments']
+                choice_embeddings = self._embed_sample(doc)['choices_embeddings']  # (#choices, hidden_size)
+                if self.SIMILARITY_FUNC == 'dot_product':
+                    scores = torch.mm(choice_embeddings, context_embedding.unsqueeze(dim=1)).squeeze()  # (#choices,)
+                elif self.SIMILARITY_FUNC == 'cosine_sim':
+                    scores = torch.cosine_similarity(
+                        choice_embeddings, context_embedding.unsqueeze(dim=0))  # (#choices,)
+                else:
+                    raise NotImplementedError
+                results.append(scores)
+        return results

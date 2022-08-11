@@ -860,7 +860,7 @@ REQUEST_RETURN_LENGTHS = {
     "loglikelihood": 2,
     "greedy_until": None,
     "loglikelihood_rolling": None,
-    "distributed_encoded_similarity": None
+    "distributed_encoding_similarity": None
 }
 
 

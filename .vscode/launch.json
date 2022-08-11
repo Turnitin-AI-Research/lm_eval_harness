@@ -93,7 +93,7 @@
             "cwd": "${workspaceFolder}/scripts"
         },
         {
-            "name": "main",
+            "name": "hellaswag",
             "type": "python",
             "request": "launch",
             "program": "main.py",
@@ -106,10 +106,32 @@
                 "hellaswag",
                 "--num_fewshot",
                 "5",
-                "--limit", "10",
-                "--no_cache"
+                // "--limit", "10",
+                // "--no_cache"
             ],
             "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "hellaswag_d",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "dist_lm",
+                "--tasks",
+                "hellaswag_d",
+                "--num_fewshot",
+                "5",
+                "--device", "1",
+                // "--limit",
+                // "10",
+                "--no_cache"
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {"CUDA_LAUNCH_BLOCKING":"1"}
         },
     ]
 }
