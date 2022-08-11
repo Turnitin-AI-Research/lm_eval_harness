@@ -3,6 +3,7 @@ from typing import List, Union
 
 import sacrebleu
 import lm_eval.base
+from lm_eval import utils
 
 from . import superglue
 from . import glue
@@ -313,9 +314,9 @@ def get_task_name_from_object(task_object):
     )
 
 
-def get_task_dict(task_name_list: List[Union[str, lm_eval.base.Task]]):
+def get_task_dict(task_name_list: List[Union[str, lm_eval.base.Task]], task_args: str = ''):
     task_name_dict = {
-        task_name: get_task(task_name)()
+        task_name: get_task(task_name)(**utils.simple_parse_args_string(task_args))
         for task_name in task_name_list
         if isinstance(task_name, str)
     }

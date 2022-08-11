@@ -30,6 +30,7 @@ def parse_args():
     parser.add_argument("--model", required=True)
     parser.add_argument("--model_args", default="")
     parser.add_argument("--tasks", default=None, choices=MultiChoice(tasks.ALL_TASKS))
+    parser.add_argument("--task_args", default="")
     parser.add_argument("--provide_description", action="store_true")
     parser.add_argument("--num_fewshot", type=int, default=0)
     parser.add_argument("--batch_size", type=int, default=None)
@@ -80,6 +81,7 @@ def main():
         model=args.model,
         model_args=args.model_args,
         tasks=task_names,
+        task_args=args.task_args,
         num_fewshot=args.num_fewshot,
         batch_size=args.batch_size,
         device=args.device,

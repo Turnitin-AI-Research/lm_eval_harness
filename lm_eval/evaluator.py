@@ -14,6 +14,7 @@ def simple_evaluate(
     model,
     model_args=None,
     tasks=[],
+    task_args="",
     num_fewshot=0,
     batch_size=None,
     device=None,
@@ -78,7 +79,7 @@ def simple_evaluate(
             + ".db",
         )
 
-    task_dict = lm_eval.tasks.get_task_dict(tasks)
+    task_dict = lm_eval.tasks.get_task_dict(tasks, task_args)
 
     if check_integrity:
         run_task_tests(task_list=tasks)
@@ -97,6 +98,7 @@ def simple_evaluate(
     results["config"] = {
         "model": model,
         "model_args": model_args,
+        "task_args": task_args,
         "num_fewshot": num_fewshot,
         "batch_size": batch_size,
         "device": device,

@@ -79,12 +79,13 @@ class HellaSwag(MultipleChoiceTask):
 
 
 class HellaSwagDist(DistEncTaskMixin, HellaSwag):
-    def __init__(self) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__()
-        self.ENCODING_SCHEME: str = 'concat_all_examples'
+        self.ENCODING_SCHEME: str = kwargs.get('encoding_scheme', 'concat_all_examples')
         self.SEGMENT_DELIMITER: str = '\n'
         self.ANSWER_DELIMITER: str = ' '
-        self.verify_args()
+        self.verify_config()
+        self.task_args = kwargs
 
     def _process_doc(self, doc):
         out_doc = SegmentedSample(super()._process_doc(doc), task=self)
@@ -95,3 +96,6 @@ class HellaSwagDist(DistEncTaskMixin, HellaSwag):
         # Indices of one or more correct targets from out_doc['choices']
         out_doc['gold_indices'] = [out_doc['gold']]
         return self.process_segments(out_doc)
+
+    def __repr__(self) -> str:
+        return super().__repr__() + (f', {self.task_args}' if self.task_args else '')

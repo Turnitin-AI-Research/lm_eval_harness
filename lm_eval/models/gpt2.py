@@ -158,4 +158,4 @@ class DistributedLM(DistEncLMMixin, HFLM):
             self.EXAMPLE_AGG_SCHEME = EXAMPLE_AGG_SCHEME
         if SIMILARITY_FUNC is not None:
             self.SIMILARITY_FUNC = SIMILARITY_FUNC
-        self.verify_args()
+        self.verify_config()

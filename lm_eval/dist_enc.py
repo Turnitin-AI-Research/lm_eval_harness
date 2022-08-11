@@ -1,9 +1,10 @@
 """Utilities for distributed encoding"""
 from typing import Dict, List
 from collections import UserDict
+from tqdm import tqdm
 import torch
 from lm_eval.base import rf
-from tqdm import tqdm
+from lm_eval.metrics import mean
 
 
 class SegmentedSample(UserDict):
@@ -33,15 +34,15 @@ class DistEncTaskMixin:
     Mixin for Distributed Encoding Task.
     Refer to new_multiple_choice_task.py for software design context.
     """
-    SEGMENT_DELIMITER: str = '\n'
-    ANSWER_DELIMITER: str = ' '
-    ENCODING_SCHEME: str = 'concat_all_examples'  # 'concat_all_examples', 'concat_each_example', 'distribute_each_example'
+    SEGMENT_DELIMITER: str = None
+    ANSWER_DELIMITER: str = None
+    ENCODING_SCHEME: str = 'concat_all_examples'  # 'concat_all_examples', 'concat_each_example', 'segment_each_example'
 
-    def verify_args(self):
+    def verify_config(self):
         """Verify arguments collected from various mixins and objects"""
         assert self.SEGMENT_DELIMITER is not None
         assert self.ANSWER_DELIMITER is not None
-        assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'distribute_each_example']
+        assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'segment_each_example']
 
     def process_segments(self, doc: SegmentedSample) -> SegmentedSample:
         """Reorganize doc segments based on encoding scheme"""
@@ -168,7 +169,20 @@ class DistEncTaskMixin:
         acc = 1.0 if torch.argmax(results[0]) in gold else 0.0
 
         return {
-            "acc": acc
+            "acc": acc,
+            "rand_acc": 1. / len(results[0])
+        }
+
+    def higher_is_better(self):
+        return {
+            "acc": True,
+            "rand_acc": True,
+        }
+
+    def aggregation(self):
+        return {
+            "acc": mean,
+            "rand_acc": mean,
         }
 
 
@@ -178,7 +192,7 @@ class DistEncLMMixin:
     EXAMPLE_AGG_SCHEME: str = 'mean'
     SIMILARITY_FUNC: str = 'dot_product'
 
-    def verify_args(self):
+    def verify_config(self):
         assert self.WORD_AGG_SCHEME is not None
         assert self.SEGMENT_AGG_SCHEME == 'mean'
         assert self.EXAMPLE_AGG_SCHEME == 'mean'
