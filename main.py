@@ -101,7 +101,8 @@ def main():
             f.write(dumped)
     elif args.output_dir:  #  and args.limit is None:
         fpath = (f"{args.output_dir}/results:model={results['config']['model']}"
-                 f"|model_args={results['config']['model_args']}|task_args={results['config']['task_args']}.json")
+                 f"|model_args={args.model_args}|task_args={args.task_args}"
+                 f"|num_fewshot={args.num_fewshot}|limit={args.limit}.json")
         with open(fpath, "w", encoding='utf-8') as f:
             f.write(dumped)
 

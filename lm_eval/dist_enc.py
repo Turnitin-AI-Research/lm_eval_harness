@@ -188,7 +188,7 @@ class DistEncTaskMixin:
     def higher_is_better(self):
         return {
             "acc": True,
-            "rand_acc": True,
+            "rand_acc": False,
         }
 
     def aggregation(self):
