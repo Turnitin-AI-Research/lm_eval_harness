@@ -5,4 +5,5 @@ lm_cache
 .idea
 .venv*/
 input_examples*/
+lmeval_results/
 .vscode/

@@ -85,7 +85,7 @@ class HellaSwagDist(DistEncTaskMixin, HellaSwag):
         self.SEGMENT_DELIMITER: str = '\n'
         self.ANSWER_DELIMITER: str = ' '
         self.verify_config()
-        self.task_args = kwargs
+        self.KWARGS = kwargs
 
     def _process_doc(self, doc):
         out_doc = SegmentedSample(super()._process_doc(doc), task=self)
@@ -98,4 +98,4 @@ class HellaSwagDist(DistEncTaskMixin, HellaSwag):
         return self.process_segments(out_doc)
 
     def __repr__(self) -> str:
-        return super().__repr__() + (f', {self.task_args}' if self.task_args else '')
+        return super().__repr__() + (f', {self.KWARGS}' if self.KWARGS else '')

@@ -148,6 +148,7 @@ class DistributedLM(DistEncLMMixin, HFLM):
                  SEGMENT_AGG_SCHEME: Optional[str] = None,
                  EXAMPLE_AGG_SCHEME: Optional[str] = None,
                  SIMILARITY_FUNC: Optional[str] = None,
+                 NORM: Optional[str] = None,
                  **kwargs):
         super().__init__(*args, **kwargs)
         if WORD_AGG_SCHEME is not None:
@@ -158,4 +159,6 @@ class DistributedLM(DistEncLMMixin, HFLM):
             self.EXAMPLE_AGG_SCHEME = EXAMPLE_AGG_SCHEME
         if SIMILARITY_FUNC is not None:
             self.SIMILARITY_FUNC = SIMILARITY_FUNC
+        if NORM is not None:
+            self.NORM = NORM
         self.verify_config()

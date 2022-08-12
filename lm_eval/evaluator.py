@@ -69,7 +69,7 @@ def simple_evaluate(
         assert isinstance(model, lm_eval.base.LM)
         lm = model
 
-    if (not no_cache) and limit is None:
+    if not no_cache:
         lm = lm_eval.base.CachingLM(
             lm,
             "lm_cache/"
@@ -81,7 +81,7 @@ def simple_evaluate(
             + ".db",
         )
 
-    task_dict = lm_eval.tasks.get_task_dict(tasks, task_args)
+    task_dict = lm_eval.tasks.get_task_dict(tasks, task_args, model_args)
 
     if check_integrity:
         run_task_tests(task_list=tasks)

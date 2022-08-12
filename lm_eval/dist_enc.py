@@ -20,6 +20,9 @@ class SegmentedSample(UserDict):
         # self['segments']: List[str]  # query segments to encode independently
         self['task'] = task  # Pointer to task for passing in configuration to the model
 
+    def copy(self):
+        return self.__class__(**self)
+
     @property
     def task(self):
         return self['task']
@@ -36,13 +39,22 @@ class DistEncTaskMixin:
     """
     SEGMENT_DELIMITER: str = None
     ANSWER_DELIMITER: str = None
-    ENCODING_SCHEME: str = 'concat_all_examples'  # 'concat_all_examples', 'concat_each_example', 'segment_each_example'
+    ENCODING_SCHEME: str = 'concat_all_examples'  # 'segment_each_example'*, 'concat_each_example', 'concat_all_examples',
+    KWARGS: dict = None
 
     def verify_config(self):
         """Verify arguments collected from various mixins and objects"""
         assert self.SEGMENT_DELIMITER is not None
         assert self.ANSWER_DELIMITER is not None
         assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'segment_each_example']
+
+    def config(self):
+        return {
+            'SEGMENT_DELIMITER': self.SEGMENT_DELIMITER,
+            'ANSWER_DELIMITER': self.ANSWER_DELIMITER,
+            'ENCODING_SCHEME': self.ENCODING_SCHEME,
+            'kwargs': self.KWARGS
+        }
 
     def process_segments(self, doc: SegmentedSample) -> SegmentedSample:
         """Reorganize doc segments based on encoding scheme"""
@@ -198,7 +210,7 @@ class DistEncLMMixin:
         assert self.SEGMENT_AGG_SCHEME == 'mean'
         assert self.EXAMPLE_AGG_SCHEME == 'mean'
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']
-        assert self.NORM in ['p2', 'layer']
+        assert self.NORM in ['p2', 'layer', None]
 
     def tok_encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string, add_special_tokens=False)

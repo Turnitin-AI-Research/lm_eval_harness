@@ -36,6 +36,7 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--output_path", default=None)
+    parser.add_argument("--output_dir", default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--no_cache", action="store_true")
     parser.add_argument("--decontamination_ngrams_path", default=None)
@@ -97,6 +98,11 @@ def main():
 
     if args.output_path:
         with open(args.output_path, "w") as f:
+            f.write(dumped)
+    elif args.output_dir:  #  and args.limit is None:
+        fpath = (f"{args.output_dir}/results:model={results['config']['model']}"
+                 f"|model_args={results['config']['model_args']}|task_args={results['config']['task_args']}.json")
+        with open(fpath, "w", encoding='utf-8') as f:
             f.write(dumped)
 
     print(
