@@ -78,6 +78,17 @@ class DistEncTaskMixin:
             out_doc = SegmentedSample(task=doc.task, segments=doc['segments'] + answer)
         return out_doc
 
+    def _concat_fewshotex(self, task, examples: List[SegmentedSample]) -> SegmentedSample:
+        """Concatenate few shot examples into one example"""
+        segments = [segment for example in examples for segment in example['segments']]
+        return SegmentedSample(task=task, segments=[self.SEGMENT_DELIMITER.join(segments)])
+
+    @staticmethod
+    def _remove_label(doc: SegmentedSample) -> SegmentedSample:
+        out_doc = doc.copy()
+        out_doc['choices'] = out_doc['gold'] = out_doc['gold_indices'] = None
+        return out_doc
+
     def fewshot_context(
         self, doc: SegmentedSample, num_fewshot: int, provide_description: bool = None, rnd=None,
         description: str = None
@@ -116,7 +127,7 @@ class DistEncTaskMixin:
             )
 
         description = [] if not description else [
-            self._make_fewshotex(SegmentedSample(task=doc.task, segments=[description]))]
+            self._make_fewshotex(SegmentedSample(task=doc.task, segments=[description], exclude_answer=True))]
 
         if num_fewshot == 0:
             fewshotex = []
@@ -139,14 +150,11 @@ class DistEncTaskMixin:
 
         context = description + [
             self._make_fewshotex(example) for example in fewshotex] + [
-            self._make_fewshotex(doc, exclude_answer=True)]
+            self._make_fewshotex(self._remove_label(doc), exclude_answer=True)]
 
         if self.ENCODING_SCHEME == 'concat_all_examples':
             # Merge all samples into one
-            context = [self._make_fewshotex(
-                SegmentedSample(
-                    task=doc.task,
-                    segments=[segment for example in context for segment in example['segments']]))]
+            context = [self._concat_fewshotex(doc.task, context)]
         return context
 
     def construct_requests(self, doc: SegmentedSample, ctx: List[SegmentedSample]):
