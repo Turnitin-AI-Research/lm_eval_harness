@@ -1,5 +1,5 @@
 """Utilities for distributed encoding"""
-from typing import Dict, List
+from typing import Dict, List, Optional
 from collections import UserDict
 from tqdm import tqdm
 import torch
@@ -39,14 +39,14 @@ class DistEncTaskMixin:
     """
     SEGMENT_DELIMITER: str = None
     ANSWER_DELIMITER: str = None
-    ENCODING_SCHEME: str = 'concat_all_examples'  # 'segment_each_example'*, 'concat_each_example', 'concat_all_examples',
+    ENCODING_SCHEME: str = None  # 'segment_each_example'*, 'concat_each_example', 'concat_all_examples',
     KWARGS: dict = None
 
     def verify_config(self):
         """Verify arguments collected from various mixins and objects"""
         assert self.SEGMENT_DELIMITER is not None
         assert self.ANSWER_DELIMITER is not None
-        assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'segment_each_example']
+        assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'segment_each_example', 'cross_encoding']
 
     def config(self):
         return {
@@ -58,7 +58,7 @@ class DistEncTaskMixin:
 
     def process_segments(self, doc: SegmentedSample) -> SegmentedSample:
         """Reorganize doc segments based on encoding scheme"""
-        if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example'] and (len(doc['segments']) > 1):
+        if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'cross_encoding'] and (len(doc['segments']) > 1):
             out_doc = doc.copy()
             out_doc['segments'] = [self.SEGMENT_DELIMITER.join(doc['segments'])]
             return out_doc
@@ -68,13 +68,13 @@ class DistEncTaskMixin:
     def _make_fewshotex(self, doc: SegmentedSample, exclude_answer: bool = False) -> SegmentedSample:
         """Reorganize a doc as a fewshot example. Remove all unnecessary info."""
         doc = self.process_segments(doc)
-        if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example']:
+        if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'cross_encoding']:
             assert len(doc['segments']) == 1
             context = doc['segments'][0]
-            answer = self.ANSWER_DELIMITER + doc['choices'][doc['gold']] if (exclude_answer or 'choices' in doc) else ''
+            answer = '' if exclude_answer else self.ANSWER_DELIMITER + doc['choices'][doc['gold']]
             out_doc = SegmentedSample(task=doc.task, segments=[context + answer])
         else:
-            answer = [doc['choices'][doc['gold']]] if (exclude_answer or 'choices' in doc) else []
+            answer = [] if exclude_answer else [doc['choices'][doc['gold']]]
             out_doc = SegmentedSample(task=doc.task, segments=doc['segments'] + answer)
         return out_doc
 
@@ -199,18 +199,27 @@ class DistEncTaskMixin:
 
 
 class DistEncLMMixin:
-    WORD_AGG_SCHEME: str = None  # last or mean
+    WORD_AGG_SCHEME: str = None
     SEGMENT_AGG_SCHEME: str = 'mean'
     EXAMPLE_AGG_SCHEME: str = 'mean'
-    SIMILARITY_FUNC: str = None  # 'cosine_sim' or 'dot_product'
-    NORM: str = None  # p2 or layer
+    SIMILARITY_FUNC: str = None
+    NORM: str = None
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME is not None
+        assert self.WORD_AGG_SCHEME in ['last', 'mean']
         assert self.SEGMENT_AGG_SCHEME == 'mean'
         assert self.EXAMPLE_AGG_SCHEME == 'mean'
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']
-        assert self.NORM in ['p2', 'layer', None]
+        assert self.NORM in ['L2', None]  # TODO: layer norm
+
+    def _normalize(self, T: torch.Tensor, *, dim: int = -1):
+        """Compute Lp norm i.e., normalize the magnitude of vectors to 1."""
+        if self.NORM is None:
+            return T
+        elif self.NORM == 'L2':
+            return torch.nn.functional.normalize(T, p=2, dim=dim)
+        else:
+            raise NotImplementedError
 
     def tok_encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string, add_special_tokens=False)
@@ -266,7 +275,7 @@ class DistEncLMMixin:
                                   / model_input['seq_lens'].unsqueeze(-1))
         else:
             raise NotImplementedError
-        return aggregated_vectors  # (batch, hidden_size)
+        return self._normalize(aggregated_vectors)  # (batch, hidden_size)
 
     def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
         """Embed segments if present, into a single embedding.
@@ -279,6 +288,7 @@ class DistEncLMMixin:
                                      return_dict=True)
             segment_embeddings = self._reduce_word_sequences(
                 model_output, model_input)  # (#segments, hidden_size)
+            segment_embeddings = self._normalize(segment_embeddings)
             if self.SEGMENT_AGG_SCHEME == 'mean':
                 sample['context_embedding'] = segment_embeddings.mean(dim=0)  # (hidden_size,)
             else:
@@ -291,6 +301,7 @@ class DistEncLMMixin:
                                      return_dict=True)
             sample['choices_embeddings'] = self._reduce_word_sequences(
                 model_output, model_input)  # (#choices, hidden_size)
+            sample['choices_embeddings'] = self._normalize(sample['choices_embeddings'])  # (#choices, hidden_size)
         return sample
 
     def _embed_context(self, examples: List[SegmentedSample]) -> torch.Tensor:
@@ -299,6 +310,7 @@ class DistEncLMMixin:
         if len(examples) > 1:
             if self.EXAMPLE_AGG_SCHEME == 'mean':
                 context_embedding = torch.stack([example['context_embedding'] for example in examples]).mean(dim=0)
+                context_embedding = self._normalize(context_embedding)
             else:
                 raise NotImplementedError
         else:

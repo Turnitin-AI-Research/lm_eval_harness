@@ -124,9 +124,9 @@
                 "--model_args", "WORD_AGG_SCHEME=mean,SIMILARITY_FUNC=cosine_sim",
                 "--tasks",
                 "hellaswag_d",
-                "--num_fewshot", "0",
+                "--num_fewshot", "5",
                 "--device", "1",
-                "--task_args", "encoding_scheme=segment_each_example",
+                "--task_args", "encoding_scheme=concat_all_examples",
                 "--limit",
                 "10",
                 "--no_cache"

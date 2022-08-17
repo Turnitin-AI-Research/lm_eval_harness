@@ -32,3 +32,5 @@ pylint
 autopep8
 ipykernel
 ipython
+plotly
+nbformat
