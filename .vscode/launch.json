@@ -106,8 +106,8 @@
                 "hellaswag",
                 "--num_fewshot",
                 "5",
-                // "--limit", "10",
-                // "--no_cache"
+                "--limit", "10",
+                "--no_cache"
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -126,7 +126,7 @@
                 "hellaswag_d",
                 "--num_fewshot", "5",
                 "--device", "1",
-                "--task_args", "encoding_scheme=concat_all_examples",
+                "--task_args", "encoding_scheme=cross_encoding",
                 "--limit",
                 "10",
                 "--no_cache"
