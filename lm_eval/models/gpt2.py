@@ -149,7 +149,6 @@ class DistributedLM(DistEncLMMixin, HFLM):
                  EXAMPLE_AGG_SCHEME: Optional[str] = None,
                  SIMILARITY_FUNC: Optional[str] = None,
                  NORM: Optional[str] = None,
-                 CROSS_ENCODING: Optional[str] = None,
                  **kwargs):
         super().__init__(*args, **kwargs)
         if WORD_AGG_SCHEME is not None:

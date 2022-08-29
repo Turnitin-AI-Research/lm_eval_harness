@@ -79,11 +79,13 @@ class HellaSwag(MultipleChoiceTask):
 
 
 class HellaSwagDist(DistEncTaskMixin, HellaSwag):
-    def __init__(self, **kwargs) -> None:
-        super().__init__()
-        self.ENCODING_SCHEME: str = kwargs.get('encoding_scheme', 'concat_all_examples')
+    def __init__(self, *args, encoding_scheme: str = 'concat_all_examples', **kwargs) -> None:
+        # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
+        super().__init__(*args, **kwargs)
+        self.ENCODING_SCHEME: str = encoding_scheme
         self.SEGMENT_DELIMITER: str = '\n'
         self.ANSWER_DELIMITER: str = ' '
+        self.EXAMPLE_DELIMITER: str = '\n\n'
         self.verify_config()
         self.KWARGS = kwargs
 

@@ -8,3 +8,5 @@ input_examples*/
 lmeval_results/
 .vscode/
 .ipynb_checkpoints/
+lm_debug/hellaswag_d_requests.pkl
+lm_debug/hellaswag_requests.pkl

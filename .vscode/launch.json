@@ -102,12 +102,15 @@
             "args": [
                 "--model",
                 "gpt2",
+                "--model_args", "pretrained=EleutherAI/gpt-neo-1.3B",
                 "--tasks",
                 "hellaswag",
                 "--num_fewshot",
-                "5",
-                "--limit", "10",
-                "--no_cache"
+                "0",
+                "--limit",
+                "10",
+                "--no_cache",
+                "--device", "7"
             ],
             "cwd": "${workspaceFolder}"
         },
@@ -121,12 +124,13 @@
             "args": [
                 "--model",
                 "dist_lm",
-                "--model_args", "WORD_AGG_SCHEME=mean,SIMILARITY_FUNC=cosine_sim",
+                "--model_args", "WORD_AGG_SCHEME=mean,SIMILARITY_FUNC=cosine_sim,NORM=layer,pretrained=EleutherAI/gpt-neo-1.3B",
                 "--tasks",
                 "hellaswag_d",
-                "--num_fewshot", "5",
-                "--device", "1",
-                "--task_args", "encoding_scheme=cross_encoding",
+                "--num_fewshot",
+                "0",
+                "--device", "7",
+                "--task_args", "encoding_scheme=concat_all_examples",
                 "--limit",
                 "10",
                 "--no_cache"

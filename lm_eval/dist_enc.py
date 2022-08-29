@@ -1,6 +1,5 @@
 """Utilities for distributed encoding"""
-from multiprocessing.sharedctypes import Value
-from optparse import Option
+import logging
 from typing import Dict, List, Optional
 from collections import UserDict
 from tqdm import tqdm
@@ -8,6 +7,7 @@ import torch
 from lm_eval.base import rf
 from lm_eval.metrics import mean
 
+_LOGGER = logging.getLogger(__name__)
 
 class SegmentedSample(UserDict):
     """Segmented Sample class that enables empty instantiation and verification"""
@@ -47,10 +47,14 @@ class DistEncTaskMixin:
     ENCODING_SCHEME: str = None  # 'segment_each_example'*, 'concat_each_example', 'concat_all_examples',
     KWARGS: dict = None
 
+    # def __init__(self, *args, **kwargs) -> None:
+    #     super().__init__(*args, **kwargs)
+
     def verify_config(self):
         """Verify arguments collected from various mixins and objects"""
         assert self.SEGMENT_DELIMITER is not None
         assert self.ANSWER_DELIMITER is not None
+        assert self.EXAMPLE_DELIMITER is not None
         assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'cross_encoding',
                                         'segment_each_example', 'merge_all_segments']
 
@@ -59,6 +63,7 @@ class DistEncTaskMixin:
             'SEGMENT_DELIMITER': self.SEGMENT_DELIMITER,
             'ANSWER_DELIMITER': self.ANSWER_DELIMITER,
             'ENCODING_SCHEME': self.ENCODING_SCHEME,
+            'EXAMPLE_DELIMITER': self.EXAMPLE_DELIMITER,
             'kwargs': self.KWARGS
         }
 
@@ -98,9 +103,14 @@ class DistEncTaskMixin:
         elif ENCODING_SCHEME == 'merge_all_segments':
             aggregate all segments into one list
         """
+        for example in examples:
+            assert len(example['segments']) == 1
         segments = [segment for example in examples for segment in example['segments']]
-        if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding']:
-            return SegmentedSample(task=doc.task, segments=[self.SEGMENT_DELIMITER.join(segments)])
+        if self.ENCODING_SCHEME in ['concat_all_examples']:
+            return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
+        elif self.ENCODING_SCHEME == 'cross_encoding':
+            return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)],
+                                   choices=[self.ANSWER_DELIMITER + choice for choice in doc['choices']])
         elif self.ENCODING_SCHEME == 'merge_all_segments':
             return SegmentedSample(task=doc.task, segments=segments)
         else:
@@ -250,18 +260,27 @@ class DistEncLMMixin:
         return True
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in ['last', 'mean']
+        assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
         assert self.SEGMENT_AGG_SCHEME == 'mean'
         assert self.EXAMPLE_AGG_SCHEME == 'mean'
-        assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']
-        assert self.NORM in ['L2', None]  # TODO: layer norm
+        assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
+        assert self.NORM in ['L2', 'layer', None]  # TODO: unit-variance norm
 
-    def _normalize(self, T: torch.Tensor, *, dim: int = -1):
+    def _should_truncate(self, seq: List) -> bool:
+        """Check if the context sequence should be truncated"""
+        if self.is_autoregressive:
+            return len(seq) > (self.max_length + 1)
+        else:
+            return len(seq) > self.max_length
+
+    def _normalize(self, T: torch.Tensor, *, dim: int = -1) -> torch.Tensor:
         """Compute Lp norm i.e., normalize the magnitude of vectors to 1."""
         if self.NORM is None:
             return T
         elif self.NORM == 'L2':
             return torch.nn.functional.normalize(T, p=2, dim=dim)
+        elif self.NORM == 'layer':
+            return T / T.std(dim=dim, keepdim=True)
         else:
             raise NotImplementedError
 
@@ -300,6 +319,8 @@ class DistEncLMMixin:
             else:
                 seq = seq1
             # Shift input right for autoregressive decoding and truncate from left if needed
+            if self._should_truncate(seq):
+                _LOGGER.warning(f'Sequence of length {len(seq)} will be truncated to {self.max_length}')
             seq = seq[-(self.max_length + 1): -1] if self.is_autoregressive else seq[-self.max_length:]
             seqs.append(seq)
             seq_lens.append(len(seq))
@@ -353,6 +374,7 @@ class DistEncLMMixin:
             segment_embeddings = self._normalize(segment_embeddings)
             if self.SEGMENT_AGG_SCHEME == 'mean':
                 sample['context_embedding'] = segment_embeddings.mean(dim=0)  # (hidden_size,)
+                sample['context_embedding'] = self._normalize(sample['context_embedding'])  # (hidden_size,)
             else:
                 raise NotImplementedError
         if 'choices' in sample:
@@ -400,18 +422,18 @@ class DistEncLMMixin:
                     assert len(context) == 1
                     assert len(context[0]['segments']) == 1
                     ctx = context[0]['segments'][0]
-                    choices = doc['choices']
+                    choices = context[0]['choices']
                     model_input = self._tok_batch_encode([ctx] * len(choices), strings2=choices)
                     model_output = self.gpt2(input_ids=model_input['input_ids'],
                                              attention_mask=model_input['attention_mask'],
                                              output_hidden_states=True,
                                              return_dict=True)
                     logprobs = torch.nn.functional.log_softmax(
-                        model_output.logits)  # (#choices, batch_len, hidden_size)
+                        model_output.logits, dim=-1)  # (#choices, seq_len, vocab)
                     score_list = []
                     for i, choice_seq in enumerate(model_input['seq2s']):
                         seq_len = model_input['seq_lens'][i].item()
-                        lp_slice = logprobs[i][seq_len-len(choice_seq):seq_len]  # (choice_len, vocab)
+                        lp_slice = logprobs[i][seq_len - len(choice_seq):seq_len]  # (choice_len, vocab)
                         # is_em = (choice_seq == lp.argmax(dim=-1)).all()
                         # is_exact_match.append(is_em)
                         choice_seq = choice_seq.unsqueeze(-1)

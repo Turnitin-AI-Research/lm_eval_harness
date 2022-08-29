@@ -1,5 +1,6 @@
 import collections
 import itertools
+import pickle
 import numpy as np
 import random
 import lm_eval.metrics
@@ -81,7 +82,7 @@ def simple_evaluate(
             + ".db",
         )
 
-    task_dict = lm_eval.tasks.get_task_dict(tasks, task_args, model_args)
+    task_dict = lm_eval.tasks.get_task_dict(tasks, task_args)
 
     if check_integrity:
         run_task_tests(task_list=tasks)
@@ -241,6 +242,9 @@ def evaluate(
     process_res_queue = collections.defaultdict(list)
 
     # execute each type of request
+    if len(task_dict_items) == 1:
+        with open(f'lm_debug/{task_dict_items[0][0]}_requests.pkl', 'wb') as f:
+            pickle.dump(requests, f)
     for reqtype, reqs in requests.items():
         # TODO: right now, this code runs multiple separate LM requests for multiple Requests differing
         #       only in index. We could implement some kind of caching, but that would be more of a band-aid
