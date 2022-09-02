@@ -10,3 +10,6 @@ lmeval_results/
 .ipynb_checkpoints/
 lm_debug/hellaswag_d_requests.pkl
 lm_debug/hellaswag_requests.pkl
+lm_debug/webqs_d_requests.pkl
+lm_debug/webqs_dg_requests.pkl
+lm_debug/webqs_requests.pkl

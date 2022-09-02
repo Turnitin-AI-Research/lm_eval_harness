@@ -148,6 +148,16 @@ def evaluate(
         Dictionary of results
     """
     # TODO: completely refactor this entire function to not be a huge mess, ideally breaking it down into smaller pieces
+    if isinstance(limit, str):
+        if ':' in limit:
+            limit_start, limit = limit.split(':')
+            limit_start, limit = int(limit_start), int(limit)
+        else:
+            limit = int(limit)
+            limit_start = 0
+    else:
+        limit_start = 0
+
 
     # TODO: todo: implement proper description-providing system
     assert not provide_description  # not implemented.
@@ -209,7 +219,7 @@ def evaluate(
             else ""
         )
 
-        for doc_id, doc in enumerate(itertools.islice(task_docs, 0, limit)):
+        for doc_id, doc in enumerate(itertools.islice(task_docs, limit_start, limit)):
 
             if decontaminate and task.should_decontaminate():
                 docs_for_decontamination[(task_name, task_set)].append(
@@ -242,9 +252,9 @@ def evaluate(
     process_res_queue = collections.defaultdict(list)
 
     # execute each type of request
-    if len(task_dict_items) == 1:
-        with open(f'lm_debug/{task_dict_items[0][0]}_requests.pkl', 'wb') as f:
-            pickle.dump(requests, f)
+    # if len(task_dict_items) == 1:
+    #     with open(f'lm_debug/{task_dict_items[0][0]}_requests.pkl', 'wb') as f:
+    #         pickle.dump(requests, f)
     for reqtype, reqs in requests.items():
         # TODO: right now, this code runs multiple separate LM requests for multiple Requests differing
         #       only in index. We could implement some kind of caching, but that would be more of a band-aid

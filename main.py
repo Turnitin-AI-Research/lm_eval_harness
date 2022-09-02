@@ -25,7 +25,7 @@ class MultiChoice:
             yield choice
 
 
-def parse_args():
+def parse_args(*args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
     parser.add_argument("--model_args", default="")
@@ -37,13 +37,13 @@ def parse_args():
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--output_path", default=None)
     parser.add_argument("--output_dir", default=None)
-    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--limit", type=str, default=None)
     parser.add_argument("--no_cache", action="store_true")
     parser.add_argument("--decontamination_ngrams_path", default=None)
     parser.add_argument("--description_dict_path", default=None)
     parser.add_argument("--check_integrity", action="store_true")
 
-    return parser.parse_args()
+    return parser.parse_args(args=None if not args else args)
 
 
 # Returns a list containing all values of the source_list that
@@ -56,8 +56,8 @@ def pattern_match(patterns, source_list):
     return list(task_names)
 
 
-def main():
-    args = parse_args()
+def main(*args):
+    args = parse_args(*args)
 
     assert not args.provide_description  # not implemented
 

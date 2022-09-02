@@ -3,7 +3,7 @@ from typing import List, Optional
 import transformers
 import torch
 from lm_eval.base import BaseLM
-from lm_eval.dist_enc import DistEncLMMixin
+from lm_eval.models.dist_enc_model import DistEncSimMixin, DistEncGenMixin
 
 
 class HFLM(BaseLM):
@@ -140,7 +140,31 @@ class HFLM(BaseLM):
 GPT2LM = HFLM
 
 
-class DistributedLM(DistEncLMMixin, HFLM):
+class DistributedSim(DistEncSimMixin, HFLM):
+    """Wrapper around HFLM that perfoms distributed encoding instead of cross-encoding"""
+
+    def __init__(self, *args,
+                 WORD_AGG_SCHEME: str = None,
+                 SEGMENT_AGG_SCHEME: Optional[str] = None,
+                 EXAMPLE_AGG_SCHEME: Optional[str] = None,
+                 SIMILARITY_FUNC: Optional[str] = None,
+                 NORM: Optional[str] = None,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+        if WORD_AGG_SCHEME is not None:
+            self.WORD_AGG_SCHEME = WORD_AGG_SCHEME
+        if SEGMENT_AGG_SCHEME is not None:
+            self.SEGMENT_AGG_SCHEME = SEGMENT_AGG_SCHEME
+        if EXAMPLE_AGG_SCHEME is not None:
+            self.EXAMPLE_AGG_SCHEME = EXAMPLE_AGG_SCHEME
+        if SIMILARITY_FUNC is not None:
+            self.SIMILARITY_FUNC = SIMILARITY_FUNC
+        if NORM is not None:
+            self.NORM = NORM
+        self.verify_config()
+
+
+class DistributedGen(DistEncGenMixin, HFLM):
     """Wrapper around HFLM that perfoms distributed encoding instead of cross-encoding"""
 
     def __init__(self, *args,

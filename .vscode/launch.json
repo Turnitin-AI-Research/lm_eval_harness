@@ -123,20 +123,125 @@
             "justMyCode": false,
             "args": [
                 "--model",
-                "dist_lm",
-                "--model_args", "WORD_AGG_SCHEME=mean,SIMILARITY_FUNC=cosine_sim,NORM=layer,pretrained=EleutherAI/gpt-neo-1.3B",
+                "dist_sim",
+                // "--model_args", "WORD_AGG_SCHEME=mean,SIMILARITY_FUNC=dot_product,NORM=layer,pretrained=EleutherAI/gpt-neo-1.3B",
                 "--tasks",
                 "hellaswag_d",
                 "--num_fewshot",
                 "0",
                 "--device", "7",
-                "--task_args", "encoding_scheme=concat_all_examples",
-                "--limit",
-                "10",
+                "--task_args",
+                "encoding_scheme=cross_encoding",
+                // "--limit",
+                // "10",
                 "--no_cache"
             ],
             "cwd": "${workspaceFolder}",
-            "env": {"CUDA_LAUNCH_BLOCKING":"1"}
+            // "env": {
+            //     "CUDA_LAUNCH_BLOCKING": "1"
+            // }
+        },
+        {
+            "name": "hellaswag_dg",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "dist_gen",
+                // "--model_args", "WORD_AGG_SCHEME=mean,SIMILARITY_FUNC=dot_product,NORM=layer,pretrained=EleutherAI/gpt-neo-1.3B",
+                "--tasks",
+                "hellaswag_dg",
+                "--num_fewshot",
+                "0",
+                "--device",
+                "7",
+                "--task_args",
+                "encoding_scheme=cross_encoding",
+                // "--limit",
+                // "10",
+                "--no_cache"
+            ],
+            "cwd": "${workspaceFolder}",
+            // "env": {
+            //     "CUDA_LAUNCH_BLOCKING": "1"
+            // }
+        },
+        {
+            "name": "webqs",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "gpt2",
+                // "--model_args",
+                // "pretrained=EleutherAI/gpt-neo-1.3B",
+                "--tasks",
+                "webqs",
+                "--num_fewshot",
+                "0",
+                "--limit",
+                "332:333",
+                "--no_cache",
+                "--device",
+                "7"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "webqs_dg",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "dist_gen",
+                "--tasks",
+                "webqs_dg",
+                "--num_fewshot",
+                "25",
+                "--device",
+                "7",
+                "--task_args",
+                "encoding_scheme=cross_encoding",
+                "--limit", "10",
+                "--model_args",
+                "pretrained=EleutherAI/gpt-neo-1.3B",
+                "--no_cache"
+            ],
+            "cwd": "${workspaceFolder}",
+            // "env": {"CUDA_LAUNCH_BLOCKING":"1"}
+        },
+        {
+            "name": "webqs_d",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "dist_sim",
+                "--tasks",
+                "webqs_d",
+                "--num_fewshot",
+                "0",
+                "--device",
+                "7",
+                "--task_args",
+                "encoding_scheme=cross_encoding",
+                // "--limit", "10",
+                "--no_cache"
+            ],
+            "cwd": "${workspaceFolder}",
+            // "env": {"CUDA_LAUNCH_BLOCKING":"1"}
         },
     ]
 }

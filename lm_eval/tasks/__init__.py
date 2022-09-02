@@ -51,6 +51,7 @@ from . import blimp
 from . import asdiv
 from . import gsm8k
 from . import storycloze
+from . import dist_enc_tasks
 
 ########################################
 # Translation tasks
@@ -285,7 +286,10 @@ TASK_REGISTRY = {
     # "storycloze_2018": storycloze.StoryCloze2018,
     # "sat": sat.SATAnalogies,
 
-    "hellaswag_d": hellaswag.HellaSwagDist,
+    "hellaswag_d": dist_enc_tasks.HellaSwagDist,
+    "hellaswag_dg": dist_enc_tasks.make_gen_class(dist_enc_tasks.HellaSwagDist),
+    "webqs_d": dist_enc_tasks.WebQsDist,
+    "webqs_dg": dist_enc_tasks.make_gen_class(dist_enc_tasks.WebQsDist)
 }
 
 

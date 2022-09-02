@@ -15,7 +15,6 @@ Homepage: https://rowanzellers.com/hellaswag/
 """
 import re
 from lm_eval.base import MultipleChoiceTask
-from lm_eval.dist_enc import DistEncTaskMixin, SegmentedSample
 
 
 _CITATION = """
@@ -76,28 +75,3 @@ class HellaSwag(MultipleChoiceTask):
 
     def doc_to_decontamination_query(self, doc):
         return doc["query"]
-
-
-class HellaSwagDist(DistEncTaskMixin, HellaSwag):
-    def __init__(self, *args, encoding_scheme: str = 'concat_all_examples', **kwargs) -> None:
-        # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
-        super().__init__(*args, **kwargs)
-        self.ENCODING_SCHEME: str = encoding_scheme
-        self.SEGMENT_DELIMITER: str = '\n'
-        self.ANSWER_DELIMITER: str = ' '
-        self.EXAMPLE_DELIMITER: str = '\n\n'
-        self.verify_config()
-        self.KWARGS = kwargs
-
-    def _process_doc(self, doc):
-        out_doc = SegmentedSample(super()._process_doc(doc), task=self)
-        # Extract all hints so that they may be optionally individually encoded without text
-        out_doc['hints'] = []
-        # Segments (including hints) so that they may be individually encoded (e.g 'Question: <question text>')
-        out_doc['segments'] = [out_doc['query']]
-        # Indices of one or more correct targets from out_doc['choices']
-        out_doc['gold_indices'] = [out_doc['gold']]
-        return self.process_segments(out_doc)
-
-    def __repr__(self) -> str:
-        return super().__repr__() + (f', {self.KWARGS}' if self.KWARGS else '')
