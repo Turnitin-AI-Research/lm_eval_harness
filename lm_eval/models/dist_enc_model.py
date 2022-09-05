@@ -19,10 +19,6 @@ class DistEncSimMixin:
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    @property
-    def is_autoregressive(self) -> bool:
-        return True
-
     def verify_config(self):
         assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
         assert self.SEGMENT_AGG_SCHEME == 'mean'
@@ -30,9 +26,9 @@ class DistEncSimMixin:
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
         assert self.NORM in ['L2', 'layer', None]  # TODO: unit-variance norm
 
-    def _should_truncate(self, seq: List) -> bool:
-        """Check if the context sequence should be truncated"""
-        if self.is_autoregressive:
+    def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
+        """Check if the sequence should be truncated"""
+        if shift_inp_right:
             return len(seq) > (self.max_length + 1)
         else:
             return len(seq) > self.max_length
@@ -51,23 +47,23 @@ class DistEncSimMixin:
     def tok_encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string, add_special_tokens=False)
 
-    def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, torch.Tensor]:
-        # WARNING: August 2022: cannot rely on return_length=True because returned lengths are incorrect
-        if self.tokenizer.pad_token_id is None:
-            reset_pad_token_id = True
-            self.tokenizer.pad_token_id = 0
-        else:
-            reset_pad_token_id = False
-        batch = self.tokenizer(text=strings, is_split_into_words=False, padding=True,
-                               add_special_tokens=False, return_tensors='pt')
-        if reset_pad_token_id:
-            self.tokenizer.pad_token_id = None
-        batch['input_ids'] = batch['input_ids'].to(device=self.device)  # (N,T)
-        batch['attention_mask'] = batch['attention_mask'].to(device=self.device)  # (N,T) boolean
-        batch['seq_lens'] = batch['attention_mask'].sum(dim=-1)  # (N,)
-        return batch
+    # def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, torch.Tensor]:
+    #     # WARNING: August 2022: cannot rely on return_length=True because returned lengths are incorrect
+    #     if self.tokenizer.pad_token_id is None:
+    #         reset_pad_token_id = True
+    #         self.tokenizer.pad_token_id = 0
+    #     else:
+    #         reset_pad_token_id = False
+    #     batch = self.tokenizer(text=strings, is_split_into_words=False, padding=True,
+    #                            add_special_tokens=False, return_tensors='pt')
+    #     if reset_pad_token_id:
+    #         self.tokenizer.pad_token_id = None
+    #     batch['input_ids'] = batch['input_ids'].to(device=self.device)  # (N,T)
+    #     batch['attention_mask'] = batch['attention_mask'].to(device=self.device)  # (N,T) boolean
+    #     batch['seq_lens'] = batch['attention_mask'].sum(dim=-1)  # (N,)
+    #     return batch
 
-    def _tok_batch_encode(self, strings1: List[str], *, strings2: Optional[List[str]] = None) -> Dict:
+    def _tok_batch_encode(self, strings1: List[str], *, strings2: Optional[List[str]] = None, shift_inp_right: bool = False) -> Dict:
         seq1s = [self.tok_encode(string) for string in strings1]
         seqs, seq_lens = [], []
         if strings2 is not None:
@@ -83,11 +79,11 @@ class DistEncSimMixin:
             else:
                 seq = seq1
             # Shift input right for autoregressive decoding and truncate from left if needed
-            if self._should_truncate(seq):
+            if self._should_truncate(seq, shift_inp_right):
                 _LOGGER.warning(f'Sequence of length {len(seq)} will be truncated to {self.max_length}')
             # TODO: self.autoregressive should probably be set to False when not cross-encoding. Especially
             # when word_agg_scheme == last
-            seq = seq[-(self.max_length + 1): -1] if self.is_autoregressive else seq[-self.max_length:]
+            seq = seq[-(self.max_length + 1): -1] if shift_inp_right else seq[-self.max_length:]
             seqs.append(seq)
             seq_lens.append(len(seq))
 
@@ -185,27 +181,28 @@ class DistEncSimMixin:
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 if doc.task.ENCODING_SCHEME == 'cross_encoding':
-                    assert len(context) == 1
-                    assert len(context[0]['segments']) == 1
-                    ctx = context[0]['segments'][0]
-                    choices = context[0]['choices']
-                    model_input = self._tok_batch_encode([ctx] * len(choices), strings2=choices)
-                    model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                             attention_mask=model_input['attention_mask'],
-                                             output_hidden_states=True,
-                                             return_dict=True)
-                    logprobs = torch.nn.functional.log_softmax(
-                        model_output.logits, dim=-1)  # (#choices, seq_len, vocab)
-                    score_list, is_exact_match = [], []
-                    for i, choice_seq in enumerate(model_input['seq2s']):
-                        seq_len = model_input['seq_lens'][i].item()
-                        lp_slice = logprobs[i][seq_len - len(choice_seq):seq_len]  # (choice_len, vocab)
-                        is_em = (choice_seq == lp_slice.argmax(dim=-1)).all().item()
-                        is_exact_match.append(bool(is_em))
-                        choice_seq = choice_seq.unsqueeze(-1)
-                        choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
-                        score_list.append(choice_lprobs.sum())
-                    results.append({'scores': torch.stack(score_list), 'is_exact_match': is_exact_match})
+                    raise ValueError('cross_encoding scheme is not support with this model_type')
+                    # assert len(context) == 1
+                    # assert len(context[0]['segments']) == 1
+                    # ctx = context[0]['segments'][0]
+                    # choices = context[0]['choices']
+                    # model_input = self._tok_batch_encode([ctx] * len(choices), strings2=choices)
+                    # model_output = self.gpt2(input_ids=model_input['input_ids'],
+                    #                          attention_mask=model_input['attention_mask'],
+                    #                          output_hidden_states=True,
+                    #                          return_dict=True)
+                    # logprobs = torch.nn.functional.log_softmax(
+                    #     model_output.logits, dim=-1)  # (#choices, seq_len, vocab)
+                    # score_list, is_exact_match = [], []
+                    # for i, choice_seq in enumerate(model_input['seq2s']):
+                    #     seq_len = model_input['seq_lens'][i].item()
+                    #     lp_slice = logprobs[i][seq_len - len(choice_seq):seq_len]  # (choice_len, vocab)
+                    #     is_em = (choice_seq == lp_slice.argmax(dim=-1)).all().item()
+                    #     is_exact_match.append(bool(is_em))
+                    #     choice_seq = choice_seq.unsqueeze(-1)
+                    #     choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
+                    #     score_list.append(choice_lprobs.sum())
+                    # results.append({'scores': torch.stack(score_list), 'is_exact_match': is_exact_match})
                 else:
                     context_embedding = self._embed_context(context)  # (hidden_size,)
                     doc = doc.copy()
@@ -253,7 +250,7 @@ class DistEncGenMixin(DistEncSimMixin):
                                  return_dict=True)
         segment_embeddings = self._reduce_word_sequences(
             model_output, model_input)  # (#segments, hidden_size)
-        segment_embeddings = self._normalize(segment_embeddings)
+        # segment_embeddings = self._normalize(segment_embeddings)
         if self.SEGMENT_AGG_SCHEME == 'mean':
             context_embeddings = segment_embeddings.mean(dim=0).unsqueeze(0)  # (1, hidden_size,)
             context_embeddings = self._normalize(context_embeddings)  # (1, hidden_size,)
@@ -264,7 +261,7 @@ class DistEncGenMixin(DistEncSimMixin):
 
     def _embed_context(self, examples: List[SegmentedSample]) -> torch.Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a sequence of embedding vectors"""
-        example_embeddings = [self._embed_segment(example)['context_embeddings'] for example in examples]
+        example_embeddings = [self._embed_segments(example) for example in examples]
         example_embeddings = torch.cat(example_embeddings, dim=0)  # (seq_len, hidden_size)
         if len(example_embeddings) > 1 and self.EXAMPLE_AGG_SCHEME == 'mean':
             context_embeddings = example_embeddings.mean(dim=0)
@@ -273,28 +270,28 @@ class DistEncGenMixin(DistEncSimMixin):
             context_embeddings = example_embeddings
         return context_embeddings  # (seq_len, hidden_size,)
 
-    def _input_embed_words(self, context_embeddings: torch.Tensor, strings: List[str]) -> Dict:
+    def _input_embed_words(self, context_embeddings: torch.Tensor, strings: List[str], shift_inp_right: bool) -> Dict:
         """
         Encode and word-embed strings. Return embedding-sequence prepended with context embedding vectors.
         """
-        assert len(context_embeddings) == 1
+        # assert len(context_embeddings) == 1
         seqs, seq2s, seq_lens = [], [], []
         for i, string in enumerate(strings):
-            tok_seq = torch.LongTensor(self.tok_encode(string), device=self.device)  # (seq_len,)
-            tok_emb = self.gpt2.get_input_embeddings(tok_seq)  # (seq_len, hidden_size)
+            tok_seq = torch.tensor(self.tok_encode(string), dtype=torch.long, device=self.device)  # (seq_len,)
+            tok_emb = self.gpt2.get_input_embeddings()(tok_seq)  # (seq_len, hidden_size)
             assert 0 < len(tok_emb) < self.max_length
             seq2s.append(tok_seq)
             seq = torch.cat([context_embeddings, tok_emb])
             # Shift input right for autoregressive decoding and truncate from left if needed
-            if self._should_truncate(seq):
+            if self._should_truncate(seq, shift_inp_right):
                 _LOGGER.warning(f'Sequence of length {len(seq)} will be truncated to {self.max_length}')
-            seq = seq[-(self.max_length + 1): -1] if self.is_autoregressive else seq[-self.max_length:]
+            seq = seq[-(self.max_length + 1): -1] if shift_inp_right else seq[-self.max_length:]
             seqs.append(seq)
             seq_lens.append(len(seq))
 
         batch_len = max(seq_lens)
         # pad
-        pad_embedding = self.gpt2.get_input_embeddings(torch.LongTensor([0]), device=self.device).squeeze(0)
+        pad_embedding = self.gpt2.get_input_embeddings()(torch.tensor([0], dtype=torch.long, device=self.device)).squeeze(0)
         seqs = [torch.cat([seq, pad_embedding.repeat(batch_len - len(seq), 1)]) if batch_len > len(seq) else seq
                 for seq in seqs]
 
@@ -335,7 +332,7 @@ class DistEncGenMixin(DistEncSimMixin):
                     # TODO: If ctx == '' context_enc = [eot_token_id]
                     # Run each choice separately to avoid OOM with large models
                     for choice in choices:
-                        model_input = self._tok_batch_encode([ctx], strings2=[choice])
+                        model_input = self._tok_batch_encode([ctx], strings2=[choice], shift_inp_right=True)
                         model_output = self.gpt2(input_ids=model_input['input_ids'],
                                                  attention_mask=model_input['attention_mask'],
                                                  output_hidden_states=True,
@@ -350,7 +347,7 @@ class DistEncGenMixin(DistEncSimMixin):
                     # Embed each choice one by one to avoid OOM with large models
                     for choice in doc['choices']:
                         # model_input = self._input_embed_words(context_embeddings, doc['choices'])
-                        model_input = self._input_embed_words(context_embeddings, [choice])
+                        model_input = self._input_embed_words(context_embeddings, [choice], shift_inp_right=True)
                         model_output = self.gpt2(inputs_embeds=model_input['inputs_embeds'],
                                                  attention_mask=model_input['attention_mask'],
                                                  output_hidden_states=True,

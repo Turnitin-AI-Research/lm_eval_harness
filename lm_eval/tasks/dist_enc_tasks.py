@@ -117,13 +117,15 @@ class DistEncTaskMixin:
             context = self.SEGMENT_DELIMITER.join(doc['segments'])
             # answer = '' if exclude_answer else self.ANSWER_DELIMITER + doc['choices'][doc['gold']]
             answer = self._answer_text(doc, choice=None if exclude_answer else doc['gold_indices'][0])
-            out_doc = SegmentedSample(task=doc.task, segments=[context + answer])
+            out_segments = context + answer
         elif self.ENCODING_SCHEME in ['segment_each_example', 'merge_all_segments']:
             # answer = [] if exclude_answer else [doc['choices'][doc['gold']]]
             answer = [self._answer_segment(doc, choice=None if exclude_answer else doc['gold_indices'][0])]
-            out_doc = SegmentedSample(task=doc.task, segments=doc['segments'] + answer)
+            out_segments = doc['segments'] + answer
         else:
             raise ValueError
+        # Sometimes out_segments can be empty strings. Remove those.
+        out_doc = SegmentedSample(task=doc.task, segments=[seg for seg in out_segments if seg])
         return out_doc
 
     def _merge_fewshotex(self, doc: SegmentedSample, examples: List[SegmentedSample]) -> SegmentedSample:
@@ -133,8 +135,9 @@ class DistEncTaskMixin:
         elif ENCODING_SCHEME == 'merge_all_segments':
             aggregate all segments into one list
         """
-        for example in examples:
-            assert len(example['segments']) == 1
+        if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding']:
+            for example in examples:
+                assert len(example['segments']) == 1
         segments = [segment for example in examples for segment in example['segments']]
         if self.ENCODING_SCHEME in ['concat_all_examples']:
             return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
@@ -258,13 +261,14 @@ class DistEncTaskMixin:
         results = results[0]
         scores = results['scores']
         acc = 1.0 if torch.argmax(scores) in golds else 0.0
-        choice_len = torch.tensor([len(choice) for choice in doc['choices']], device=scores.device, dtype=torch.long)
-        acc_norm = 1.0 if torch.argmax(scores / choice_len) in golds else 0.0
         ret_dict = {
             "acc": acc,
-            "acc_norm": acc_norm,
             "rand_acc": 1. / len(scores)
         }
+        if self.ENCODING_SCHEME == 'cross_encoding' or self.TASK_TYPE == 'gen':
+            choice_len = torch.tensor([len(choice) for choice in doc['choices']], device=scores.device, dtype=torch.long)
+            acc_norm = 1.0 if torch.argmax(scores / choice_len) in golds else 0.0
+            ret_dict["acc_norm"] = acc_norm
         if 'is_exact_match' in results:
             ret_dict['em'] = 1.0 if any(results['is_exact_match'][idx] for idx in doc['gold_indices']) else 0.0
 
