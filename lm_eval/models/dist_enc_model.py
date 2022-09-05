@@ -209,8 +209,7 @@ class DistEncSimMixin:
                     del doc['segments']
                     choice_embeddings = self._embed_sample(doc)['choices_embeddings']  # (#choices, hidden_size)
                     if self.SIMILARITY_FUNC == 'dot_product':
-                        scores = torch.mm(choice_embeddings, context_embedding.unsqueeze(dim=1)
-                                          ).squeeze()  # (#choices,)
+                        scores = torch.matmul(choice_embeddings, context_embedding)  # (#choices,)
                     elif self.SIMILARITY_FUNC == 'cosine_sim':
                         scores = torch.cosine_similarity(
                             choice_embeddings, context_embedding.unsqueeze(dim=0))  # (#choices,)

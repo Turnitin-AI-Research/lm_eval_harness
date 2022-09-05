@@ -66,12 +66,14 @@ class DistEncTaskMixin:
                                         'segment_each_example', 'merge_all_segments']
         assert self.TASK_TYPE in [None, 'gen']
 
+    @property
     def config(self):
         return {
             'SEGMENT_DELIMITER': self.SEGMENT_DELIMITER,
             'ANSWER_DELIMITER': self.ANSWER_DELIMITER,
             'ENCODING_SCHEME': self.ENCODING_SCHEME,
             'EXAMPLE_DELIMITER': self.EXAMPLE_DELIMITER,
+            'TASK_TYPE': self.TASK_TYPE,
             'kwargs': self.KWARGS
         }
 
@@ -115,11 +117,9 @@ class DistEncTaskMixin:
         if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding', 'concat_each_example']:
             # assert len(doc['segments']) == 1
             context = self.SEGMENT_DELIMITER.join(doc['segments'])
-            # answer = '' if exclude_answer else self.ANSWER_DELIMITER + doc['choices'][doc['gold']]
             answer = self._answer_text(doc, choice=None if exclude_answer else doc['gold_indices'][0])
-            out_segments = context + answer
+            out_segments = [context + answer]
         elif self.ENCODING_SCHEME in ['segment_each_example', 'merge_all_segments']:
-            # answer = [] if exclude_answer else [doc['choices'][doc['gold']]]
             answer = [self._answer_segment(doc, choice=None if exclude_answer else doc['gold_indices'][0])]
             out_segments = doc['segments'] + answer
         else:
@@ -137,7 +137,8 @@ class DistEncTaskMixin:
         """
         if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding']:
             for example in examples:
-                assert len(example['segments']) == 1
+                assert len(example['segments']
+                           ) == 1, f"# of segments = {len(example['segments'])}, config={self.config}"
         segments = [segment for example in examples for segment in example['segments']]
         if self.ENCODING_SCHEME in ['concat_all_examples']:
             return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
@@ -331,6 +332,8 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         # self.ANSWER_DELIMITER: str = ' '
         # self.EXAMPLE_DELIMITER: str = '\n\n'
         self.verify_config()
+        # Since all choices are gold targets in WebQ, only task-type == 'gen' makes sense here.
+        assert self.TASK_TYPE == 'gen'
 
     def test_docs(self):
         return map(self._process_doc, super().test_docs())
