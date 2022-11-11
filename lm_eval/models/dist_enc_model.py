@@ -4,6 +4,7 @@ import logging
 from typing import Dict, List, Optional
 from tqdm import tqdm
 import torch
+from torch import Tensor
 from lm_eval.tasks.dist_enc_tasks import SegmentedSample
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +24,7 @@ class DistEncSimMixin:
                  EXAMPLE_AGG_SCHEME: Optional[str] = 'mean',
                  SIMILARITY_FUNC: Optional[str] = None,
                  NORM: Optional[str] = None,
+                 COMPOSITION_FUNC: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.WORD_AGG_SCHEME: str = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
@@ -30,6 +32,7 @@ class DistEncSimMixin:
         self.EXAMPLE_AGG_SCHEME: str = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
         self.SIMILARITY_FUNC: str = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
         self.NORM: str = NORM if NORM != 'None' else None
+        self.COMPOSITION_FUNC = COMPOSITION_FUNC if COMPOSITION_FUNC != 'None' else None
 
     def verify_config(self):
         assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
@@ -45,7 +48,7 @@ class DistEncSimMixin:
         else:
             return len(seq) > self.max_length
 
-    def _normalize(self, T: torch.Tensor, *, dim: int = -1) -> torch.Tensor:
+    def _normalize(self, T: Tensor, *, dim: int = -1) -> Tensor:
         """Compute Lp norm i.e., normalize the magnitude of vectors to 1."""
         if self.NORM is None:
             return T
@@ -56,10 +59,25 @@ class DistEncSimMixin:
         else:
             raise NotImplementedError
 
+    @staticmethod
+    def _soft_cluster(Q: Tensor, M: Tensor) -> Tensor:
+        """
+        Attention based soft clustering. Merge vectors in M into vectors in Q weighted by similarity.
+        :param Q
+            query vectors of shape (Sq, D) where D is the vector size
+        :param M
+            memory vectors of shape (Sm, D)
+        :return Tensor[Sq, D]
+            attention aggregated (M)
+        """
+        dot_product = torch.matmul(Q, M.T)  # (Sq, Sm)
+        attention_weights = torch.nn.functional.softmax(dot_product, dim=0)  # (Sq, Sm)
+        return torch.matmul(attention_weights, M)  # (Sq, D)
+
     def tok_encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string, add_special_tokens=False)
 
-    # def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, torch.Tensor]:
+    # def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, Tensor]:
     #     # WARNING: August 2022: cannot rely on return_length=True because returned lengths are incorrect
     #     if self.tokenizer.pad_token_id is None:
     #         reset_pad_token_id = True
@@ -111,14 +129,14 @@ class DistEncSimMixin:
             retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
         return retdir
 
-    def _reduce_word_sequences(self, model_output: Dict, model_input: Dict) -> torch.Tensor:
+    def _reduce_word_sequences(self, model_output: Dict, model_input: Dict) -> Tensor:
         """Aggregate a sequence of word vectors into a single concept vector
 
         :param model_output: Dict.
             HuggingFace model_output dict.
         :param model_input: Dict
             Model input dict
-        :return: torch.Tensor, shape = (batch_size, hidden_size)
+        :return: Tensor, shape = (batch_size, hidden_size)
             Each sequence in the batch reduced to an embedding of size hidden_size
         """
         concept_seqs = model_output['hidden_states'][-1]  # (batch, padding-len, hidden_size)
@@ -163,13 +181,13 @@ class DistEncSimMixin:
 
         return sample
 
-    def _embed_context(self, examples: List[SegmentedSample]) -> torch.Tensor:
+    def _embed_context(self, examples: List[SegmentedSample]) -> Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
         example_embeddings = [self._embed_sample(example)['context_embeddings'] for example in examples]
         example_embeddings = torch.cat(example_embeddings, dim=0)  # (#chunks, hidden_size)
         if len(example_embeddings) > 1:
             if self.EXAMPLE_AGG_SCHEME == 'mean':
-                context_embeddings = torch.mean(dim=0)  # (hidden_size,)
+                context_embeddings = example_embeddings.mean(dim=0)  # (hidden_size,)
                 context_embeddings = self._normalize(context_embeddings).unsqueeze(0)  # (1, hidden_size)
             elif self.EXAMPLE_AGG_SCHEME is None:
                 context_embeddings = example_embeddings  # (#chunks, hidden_size)
@@ -179,7 +197,7 @@ class DistEncSimMixin:
             context_embeddings = example_embeddings  # (#chunks, hidden_size)
         return context_embeddings  # (#chunks, hidden_size)
 
-    def distributed_encoding_similarity(self, requests_args) -> List[torch.Tensor]:
+    def distributed_encoding_similarity(self, requests_args) -> List[Tensor]:
         """Compute similarity of choices.
 
         :param
@@ -187,55 +205,34 @@ class DistEncSimMixin:
             context: List of context SegmentedSamples: Optional[description] + [few-shot samples] + [doc]
             doc: The query doc SegmentedSample
         :return:
-            A list of results, [torch.Tensor], one per request (doc)
-            torch.Tensor: A list of similarity scores of a request (doc), one per choice [score,]
+            A list of results, [Tensor], one per request (doc)
+            Tensor: A list of similarity scores of a request (doc), one per choice [score,]
         """
         # Eschewing batching in favor of simplicity for now
         results = []
         self.gpt2.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
-                if doc.task.ENCODING_SCHEME == 'cross_encoding':
-                    raise ValueError('cross_encoding scheme is not support with this model_type')
-                    # assert len(context) == 1
-                    # assert len(context[0]['segments']) == 1
-                    # ctx = context[0]['segments'][0]
-                    # choices = context[0]['choices']
-                    # model_input = self._tok_batch_encode([ctx] * len(choices), strings2=choices)
-                    # model_output = self.gpt2(input_ids=model_input['input_ids'],
-                    #                          attention_mask=model_input['attention_mask'],
-                    #                          output_hidden_states=True,
-                    #                          return_dict=True)
-                    # logprobs = torch.nn.functional.log_softmax(
-                    #     model_output.logits, dim=-1)  # (#choices, seq_len, vocab)
-                    # score_list, is_exact_match = [], []
-                    # for i, choice_seq in enumerate(model_input['seq2s']):
-                    #     seq_len = model_input['seq_lens'][i].item()
-                    #     lp_slice = logprobs[i][seq_len - len(choice_seq):seq_len]  # (choice_len, vocab)
-                    #     is_em = (choice_seq == lp_slice.argmax(dim=-1)).all().item()
-                    #     is_exact_match.append(bool(is_em))
-                    #     choice_seq = choice_seq.unsqueeze(-1)
-                    #     choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
-                    #     score_list.append(choice_lprobs.sum())
-                    # results.append({'scores': torch.stack(score_list), 'is_exact_match': is_exact_match})
+                assert doc.task.ENCODING_SCHEME != 'cross_encoding', 'cross_encoding scheme is not support with this model_type'
+                context_embeddings = self._embed_context(context)  # (#chunks, hidden_size)
+                doc = doc.copy()
+                del doc['segments']
+                choice_embeddings = self._embed_sample(doc)['choices_embeddings']  # (#choices, hidden_size)
+                if self.COMPOSITION_FUNC == 'soft_cluster':
+                    context_embeddings = self._soft_cluster(choice_embeddings, context_embeddings)  # (#choices, hidden_size)
+                if self.SIMILARITY_FUNC == 'cosine_sim':
+                    # L2 normalize vectors for cosine-sim
+                    context_embeddings = torch.nn.functional.normalize(context_embeddings, p=2, dim=1)
+                    choice_embeddings = torch.nn.functional.normalize(choice_embeddings, p=2, dim=1)
+                if self.COMPOSITION_FUNC == 'soft_cluster':
+                    scores = torch.sum(choice_embeddings * context_embeddings, dim=1)  # (#choices,)
+                elif self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']:
+                    scores = torch.matmul(choice_embeddings, context_embeddings.T)  # (#choices, #chunks)
+                    scores = scores.amax(dim=1)  # (#choices,)
                 else:
-                    context_embeddings = self._embed_context(context)  # (#chunks, hidden_size)
-                    doc = doc.copy()
-                    del doc['segments']
-                    choice_embeddings = self._embed_sample(doc)['choices_embeddings']  # (#choices, hidden_size)
-                    if self.SIMILARITY_FUNC == 'cosine_sim':
-                        # L2 normalize vectors for cosine-sim
-                        context_embeddings = torch.nn.functional.normalize(context_embeddings, p=2, dim=1)
-                        choice_embeddings = torch.nn.functional.normalize(choice_embeddings, p=2, dim=1)
-                    if self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']:
-                        scores = torch.matmul(choice_embeddings, context_embeddings.T)  # (#choices, #chunks)
-                        scores = scores.amax(dim=1)  # (#choices,)
-                    # elif self.SIMILARITY_FUNC == 'cosine_sim':
-                    #     scores = torch.cosine_similarity(
-                    #         choice_embeddings, context_embedding.unsqueeze(dim=0))  # (#choices,)
-                    else:
-                        raise NotImplementedError
-                    results.append({'scores': scores})
+                    raise NotImplementedError
+                scores = torch.nn.functional.softmax(scores)
+                results.append({'scores': scores})
         return results
 
 
@@ -259,7 +256,7 @@ class DistEncGenMixin(DistEncSimMixin):
     def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
         raise NotImplementedError('This method should not have been called')
 
-    def _embed_segments(self, sample: SegmentedSample) -> torch.Tensor:
+    def _embed_segments(self, sample: SegmentedSample) -> Tensor:
         """Embed segments into a seqeunce of embeddings."""
         assert 'segments' in sample
         model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
@@ -278,7 +275,7 @@ class DistEncGenMixin(DistEncSimMixin):
 
         return context_embeddings  # (#segments, hidden_size)
 
-    def _embed_context(self, examples: List[SegmentedSample]) -> torch.Tensor:
+    def _embed_context(self, examples: List[SegmentedSample]) -> Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a sequence of embedding vectors"""
         example_embeddings = [self._embed_segments(example) for example in examples]
         example_embeddings = torch.cat(example_embeddings, dim=0)  # (seq_len, hidden_size)
@@ -289,7 +286,7 @@ class DistEncGenMixin(DistEncSimMixin):
             context_embeddings = example_embeddings
         return context_embeddings  # (seq_len, hidden_size,)
 
-    def _input_embed_words(self, context_embeddings: torch.Tensor, strings: List[str], shift_inp_right: bool) -> Dict:
+    def _input_embed_words(self, context_embeddings: Tensor, strings: List[str], shift_inp_right: bool) -> Dict:
         """
         Encode and word-embed strings. Return embedding-sequence prepended with context embedding vectors.
         """
@@ -324,7 +321,7 @@ class DistEncGenMixin(DistEncSimMixin):
         }
         return retdir
 
-    def distributed_encoding_generation(self, requests_args) -> List[torch.Tensor]:
+    def distributed_encoding_generation(self, requests_args) -> List[Tensor]:
         """Generate text by encoding context distributively.
 
         :param requests_args: list
@@ -332,8 +329,8 @@ class DistEncGenMixin(DistEncSimMixin):
             context: List of context SegmentedSamples: Optional[description] + [few-shot samples] + [doc]
             doc: The query doc SegmentedSample
         :return:
-            A list of results, [torch.Tensor], one per request (doc)
-            torch.Tensor: A list of similarity scores of a request (doc), one per choice [score,]
+            A list of results, [Tensor], one per request (doc)
+            Tensor: A list of similarity scores of a request (doc), one per choice [score,]
         """
         # Eschewing batching in favor of simplicity for now
         self.verify_config()
@@ -341,9 +338,9 @@ class DistEncGenMixin(DistEncSimMixin):
         self.gpt2.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
-                logprobs: List[torch.Tensor] = []
-                seq2s: List[torch.Tensor] = []
-                seq_lens: List[torch.Tensor] = []
+                logprobs: List[Tensor] = []
+                seq2s: List[Tensor] = []
+                seq_lens: List[Tensor] = []
                 if doc.task.ENCODING_SCHEME == 'cross_encoding':
                     assert len(context) == 1
                     assert len(context[0]['segments']) == 1

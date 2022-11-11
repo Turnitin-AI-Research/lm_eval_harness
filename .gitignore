@@ -5,8 +5,7 @@ lm_cache
 .idea
 .venv*/
 input_examples*/
-lmeval_results/
-lmeval_results2
+lmeval_results*/
 .vscode/
 .ipynb_checkpoints/
 lm_debug/
