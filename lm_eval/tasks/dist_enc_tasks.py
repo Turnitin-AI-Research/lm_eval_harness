@@ -1,9 +1,10 @@
 """Task modifications for distributed encoding"""
-from typing import List, Optional, Type, Dict
+from typing import List, Optional, Type, Dict, Union
 from collections import UserDict
 import torch
 from lm_eval.base import Task, rf
 from lm_eval.metrics import mean
+from lm_eval.tasks import wsc273
 from . import hellaswag, webqs
 
 
@@ -40,14 +41,14 @@ class DistEncTaskMixin:
     Mixin for Distributed Encoding Task.
     Refer to new_multiple_choice_task.py for software design context.
     """
-    SEGMENT_DELIMITER: str = None
-    ANSWER_DELIMITER: str = None
-    ENCODING_SCHEME: str = None  # 'segment_each_example', 'concat_each_example', 'concat_all_examples',
-    KWARGS: dict = None
+    # SEGMENT_DELIMITER: str = None
+    # ANSWER_DELIMITER: str = None
+    # ENCODING_SCHEME: str = None  # 'segment_each_example', 'concat_each_example', 'concat_all_examples',
+    # KWARGS: dict = None
 
     def __init__(self, *args, encoding_scheme: str = 'concat_all_examples', task_type: Optional[str] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.ENCODING_SCHEME: str = encoding_scheme
+        self.ENCODING_SCHEME: str = encoding_scheme  # 'segment_each_example', 'concat_each_example', 'concat_all_examples',
         self.SEGMENT_DELIMITER: str = '\n'  # override this in subclass' constructor
         self.ANSWER_DELIMITER: str = ' '  # override this in subclass' constructor
         self.EXAMPLE_DELIMITER: str = '\n\n'  # override this in subclass' constructor
@@ -106,8 +107,7 @@ class DistEncTaskMixin:
                 answer = (answer + self.ANSWER_DELIMITER + doc['choices'][choice])
         return answer
 
-    def _make_fewshotex(self, doc: SegmentedSample,
-                        *,
+    def _make_fewshotex(self, doc: SegmentedSample, *,
                         exclude_answer: bool = False) -> SegmentedSample:
         """
         * Reorganize the doc as a fewshot example.
@@ -121,6 +121,26 @@ class DistEncTaskMixin:
             out_segments = [context + answer]
         elif self.ENCODING_SCHEME in ['segment_each_example', 'merge_all_segments']:
             answer = [self._answer_segment(doc, choice=None if exclude_answer else doc['gold_indices'][0])]
+            out_segments = doc['segments'] + answer
+        else:
+            raise ValueError
+        # Sometimes out_segments can be empty strings. Remove those.
+        out_doc = SegmentedSample(task=doc.task, segments=[seg for seg in out_segments if seg])
+        return out_doc
+
+    def _make_fewshot_query(self, doc: SegmentedSample) -> SegmentedSample:
+        """
+        * Reorganize the doc as a fewshot example.
+        * Remove all unnecessary info.
+        """
+        # doc = self.process_segments(doc)
+        if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding', 'concat_each_example']:
+            # assert len(doc['segments']) == 1
+            context = self.SEGMENT_DELIMITER.join(doc['segments'])
+            answer = self._answer_text(doc, choice=None)
+            out_segments = [context + answer]
+        elif self.ENCODING_SCHEME in ['segment_each_example', 'merge_all_segments']:
+            answer = [self._answer_segment(doc, choice=None)]
             out_segments = doc['segments'] + answer
         else:
             raise ValueError
@@ -194,8 +214,8 @@ class DistEncTaskMixin:
                 "WARNING: provide_description is deprecated and will be removed in a future version in favor of description_dict"
             )
 
-        description_list = [] if not description else [
-            self._make_fewshotex(SegmentedSample(task=doc.task, segments=[description]), exclude_answer=True)]
+        description = None if not description else self._make_fewshotex(SegmentedSample(task=doc.task, segments=[description]),
+                                                                        exclude_answer=True)
 
         if num_fewshot == 0:
             fewshotex = []
@@ -217,9 +237,13 @@ class DistEncTaskMixin:
                 fewshotex = [x for x in fewshotex if x != doc][:num_fewshot]
                 assert len(fewshotex) == min(num_fewshot, num_sampled_docs)
 
+        return self._make_contextlist(doc, fewshotex, description)
+
+    def _make_contextlist(self, doc: SegmentedSample, fewshotex: List[SegmentedSample], description: Optional[SegmentedSample]) -> List:
+        description_list = [] if description is None else [description]
         context_list = description_list + [
             self._make_fewshotex(example) for example in fewshotex] + [
-            self._make_fewshotex(self._remove_label(doc), exclude_answer=True)]
+            self._make_fewshot_query(self._remove_label(doc))]
 
         if self.ENCODING_SCHEME in ['concat_all_examples', 'merge_all_segments', 'cross_encoding']:
             # Merge all samples into one
@@ -267,7 +291,8 @@ class DistEncTaskMixin:
             "rand_acc": 1. / len(scores)
         }
         if self.ENCODING_SCHEME == 'cross_encoding' or self.TASK_TYPE == 'gen':
-            choice_len = torch.tensor([len(choice) for choice in doc['choices']], device=scores.device, dtype=torch.long)
+            choice_len = torch.tensor([len(choice) for choice in doc['choices']],
+                                      device=scores.device, dtype=torch.long)
             acc_norm = 1.0 if torch.argmax(scores / choice_len) in golds else 0.0
             ret_dict["acc_norm"] = acc_norm
         if 'is_exact_match' in results:
@@ -363,3 +388,46 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
             # Exact match is the only accuracy metric for webqs.
             'acc': metrics['em']
         }
+
+
+class DistEncTaskMixin2(DistEncTaskMixin):
+    """Specializtion of DistEncTaskMixin for cases where there are multiple contexts instead of multiple targets."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+    def _make_contextlist(self, doc: SegmentedSample, fewshotex: List[SegmentedSample],
+                          description: Optional[SegmentedSample]) -> List[List[SegmentedSample]]:
+        """Return multiple context lists instead of one"""
+        description_list = [] if description is None else [description]
+        contexts = []
+        for ctx_choice in doc['ctx_choices']:
+            _doc = doc.copy()
+            _doc['segments'] = [ctx_choice]
+            context_list = description_list + [
+                self._make_fewshotex(example) for example in fewshotex] + [
+                self._make_fewshot_query(self._remove_label(_doc))]
+
+            if self.ENCODING_SCHEME in ['concat_all_examples', 'merge_all_segments', 'cross_encoding']:
+                # Merge all samples into one
+                context_list = [self._merge_fewshotex(_doc, context_list)]
+            contexts.append(context_list)
+        return contexts
+
+
+class Wsc273Dist(DistEncTaskMixin2, wsc273.WinogradSchemaChallenge273):
+    def __init__(self, *args, **kwargs) -> None:
+        # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
+        super().__init__(*args, **kwargs)
+        # self.SEGMENT_DELIMITER: str = '\n'
+        # self.ANSWER_DELIMITER: str = ' '
+        # self.EXAMPLE_DELIMITER: str = '\n\n'
+        self.verify_config()
+
+    def _process_doc(self, doc):
+        doc = SegmentedSample(super()._process_doc(doc), task=self)
+        doc['segments'] = [self.doc_to_text(doc)]
+        doc['choices'] = [self.partial_target(doc)]
+        doc['gold_indices'] = [0]
+        doc['ctx_choices'] = [self.partial_context(doc, option) for option in doc['options']]
+        doc['ctx_gold_indices'] = [doc['label']]

@@ -4,27 +4,39 @@ import logging
 from typing import Dict, List, Optional
 from tqdm import tqdm
 import torch
-from lm_eval.tasks.dist_enc_tasks import DistEncTaskMixin, SegmentedSample
+from lm_eval.tasks.dist_enc_tasks import SegmentedSample
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class DistEncSimMixin:
-    WORD_AGG_SCHEME: str = None
-    SEGMENT_AGG_SCHEME: str = 'mean'
-    EXAMPLE_AGG_SCHEME: str = 'mean'
-    SIMILARITY_FUNC: str = None
-    NORM: str = None
+    # WORD_AGG_SCHEME: str = None
+    # SEGMENT_AGG_SCHEME: str = 'mean'
+    # EXAMPLE_AGG_SCHEME: str = 'mean'
+    # SIMILARITY_FUNC: str = None
+    # NORM: str = None
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self,
+                 *args,
+                 WORD_AGG_SCHEME: Optional[str] = None,
+                 SEGMENT_AGG_SCHEME: Optional[str] = 'mean',
+                 EXAMPLE_AGG_SCHEME: Optional[str] = 'mean',
+                 SIMILARITY_FUNC: Optional[str] = None,
+                 NORM: Optional[str] = None,
+                 **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.WORD_AGG_SCHEME: str = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
+        self.SEGMENT_AGG_SCHEME: str = SEGMENT_AGG_SCHEME if SEGMENT_AGG_SCHEME != 'None' else None
+        self.EXAMPLE_AGG_SCHEME: str = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
+        self.SIMILARITY_FUNC: str = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
+        self.NORM: str = NORM if NORM != 'None' else None
 
     def verify_config(self):
         assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
-        assert self.SEGMENT_AGG_SCHEME == 'mean'
-        assert self.EXAMPLE_AGG_SCHEME == 'mean'
+        assert self.SEGMENT_AGG_SCHEME in ['mean', None]
+        assert self.EXAMPLE_AGG_SCHEME in ['mean', None]
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
-        assert self.NORM in ['L2', 'layer', None]  # TODO: unit-variance norm
+        assert self.NORM in ['L2', 'layer', None]
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""
@@ -81,8 +93,6 @@ class DistEncSimMixin:
             # Shift input right for autoregressive decoding and truncate from left if needed
             if self._should_truncate(seq, shift_inp_right):
                 _LOGGER.warning(f'Sequence of length {len(seq)} will be truncated to {self.max_length}')
-            # TODO: self.autoregressive should probably be set to False when not cross-encoding. Especially
-            # when word_agg_scheme == last
             seq = seq[-(self.max_length + 1): -1] if shift_inp_right else seq[-self.max_length:]
             seqs.append(seq)
             seq_lens.append(len(seq))
@@ -126,7 +136,7 @@ class DistEncSimMixin:
         """Embed segments if present, into a single embedding.
         If choices are present, then embed each individually."""
         if 'segments' in sample:
-            model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padding_len)
+            model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
             model_output = self.gpt2(input_ids=model_input['input_ids'],
                                      attention_mask=model_input['attention_mask'],
                                      output_hidden_states=True,
@@ -135,12 +145,14 @@ class DistEncSimMixin:
                 model_output, model_input)  # (#segments, hidden_size)
             segment_embeddings = self._normalize(segment_embeddings)
             if self.SEGMENT_AGG_SCHEME == 'mean':
-                sample['context_embedding'] = segment_embeddings.mean(dim=0)  # (hidden_size,)
-                sample['context_embedding'] = self._normalize(sample['context_embedding'])  # (hidden_size,)
+                _context_embedding = segment_embeddings.mean(dim=0)  # (hidden_size,)
+                sample['context_embeddings'] = self._normalize(_context_embedding).unsqueeze(0)  # (1, hidden_size,)
+            elif self.SEGMENT_AGG_SCHEME is None:
+                sample['context_embeddings'] = segment_embeddings  # (#segments, hidden_size)
             else:
                 raise NotImplementedError
         if 'choices' in sample:
-            model_input = self._tok_batch_encode(sample['choices'])  # (#choices, padding_len)
+            model_input = self._tok_batch_encode(sample['choices'])  # (#choices, padded_len)
             model_output = self.gpt2(input_ids=model_input['input_ids'],
                                      attention_mask=model_input['attention_mask'],
                                      output_hidden_states=True,
@@ -153,22 +165,25 @@ class DistEncSimMixin:
 
     def _embed_context(self, examples: List[SegmentedSample]) -> torch.Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
-        example_embeddings = [self._embed_sample(example)['context_embedding'] for example in examples]
+        example_embeddings = [self._embed_sample(example)['context_embeddings'] for example in examples]
+        example_embeddings = torch.cat(example_embeddings, dim=0)  # (#chunks, hidden_size)
         if len(example_embeddings) > 1:
             if self.EXAMPLE_AGG_SCHEME == 'mean':
-                context_embedding = torch.stack(example_embeddings).mean(dim=0)
-                context_embedding = self._normalize(context_embedding)
+                context_embeddings = torch.mean(dim=0)  # (hidden_size,)
+                context_embeddings = self._normalize(context_embeddings).unsqueeze(0)  # (1, hidden_size)
+            elif self.EXAMPLE_AGG_SCHEME is None:
+                context_embeddings = example_embeddings  # (#chunks, hidden_size)
             else:
                 raise NotImplementedError
         else:
-            context_embedding = example_embeddings[0]
-        return context_embedding  # (hidden_size,)
+            context_embeddings = example_embeddings  # (#chunks, hidden_size)
+        return context_embeddings  # (#chunks, hidden_size)
 
     def distributed_encoding_similarity(self, requests_args) -> List[torch.Tensor]:
         """Compute similarity of choices.
 
-        :param requests: list
-            A list of pairs (context, doc)
+        :param
+            requests_args: A list of pairs (context, doc)
             context: List of context SegmentedSamples: Optional[description] + [few-shot samples] + [doc]
             doc: The query doc SegmentedSample
         :return:
@@ -204,15 +219,20 @@ class DistEncSimMixin:
                     #     score_list.append(choice_lprobs.sum())
                     # results.append({'scores': torch.stack(score_list), 'is_exact_match': is_exact_match})
                 else:
-                    context_embedding = self._embed_context(context)  # (hidden_size,)
+                    context_embeddings = self._embed_context(context)  # (#chunks, hidden_size)
                     doc = doc.copy()
                     del doc['segments']
                     choice_embeddings = self._embed_sample(doc)['choices_embeddings']  # (#choices, hidden_size)
-                    if self.SIMILARITY_FUNC == 'dot_product':
-                        scores = torch.matmul(choice_embeddings, context_embedding)  # (#choices,)
-                    elif self.SIMILARITY_FUNC == 'cosine_sim':
-                        scores = torch.cosine_similarity(
-                            choice_embeddings, context_embedding.unsqueeze(dim=0))  # (#choices,)
+                    if self.SIMILARITY_FUNC == 'cosine_sim':
+                        # L2 normalize vectors for cosine-sim
+                        context_embeddings = torch.nn.functional.normalize(context_embeddings, p=2, dim=1)
+                        choice_embeddings = torch.nn.functional.normalize(choice_embeddings, p=2, dim=1)
+                    if self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']:
+                        scores = torch.matmul(choice_embeddings, context_embeddings.T)  # (#choices, #chunks)
+                        scores = scores.amax(dim=1)  # (#choices,)
+                    # elif self.SIMILARITY_FUNC == 'cosine_sim':
+                    #     scores = torch.cosine_similarity(
+                    #         choice_embeddings, context_embedding.unsqueeze(dim=0))  # (#choices,)
                     else:
                         raise NotImplementedError
                     results.append({'scores': scores})
@@ -220,11 +240,11 @@ class DistEncSimMixin:
 
 
 class DistEncGenMixin(DistEncSimMixin):
-    WORD_AGG_SCHEME: Optional[str] = None
-    SEGMENT_AGG_SCHEME: Optional[str] = None
-    EXAMPLE_AGG_SCHEME: Optional[str] = None
-    SIMILARITY_FUNC: Optional[str] = None
-    NORM: Optional[str] = None
+    # WORD_AGG_SCHEME: Optional[str] = None
+    # SEGMENT_AGG_SCHEME: Optional[str] = None
+    # EXAMPLE_AGG_SCHEME: Optional[str] = None
+    # SIMILARITY_FUNC: Optional[str] = None
+    # NORM: Optional[str] = None
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -234,7 +254,7 @@ class DistEncGenMixin(DistEncSimMixin):
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None]
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
-        assert self.NORM in ['L2', 'layer', None]  # TODO: unit-variance norm
+        assert self.NORM in ['L2', 'layer', None]
 
     def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
         raise NotImplementedError('This method should not have been called')
@@ -242,7 +262,7 @@ class DistEncGenMixin(DistEncSimMixin):
     def _embed_segments(self, sample: SegmentedSample) -> torch.Tensor:
         """Embed segments into a seqeunce of embeddings."""
         assert 'segments' in sample
-        model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padding_len)
+        model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
         model_output = self.gpt2(input_ids=model_input['input_ids'],
                                  attention_mask=model_input['attention_mask'],
                                  output_hidden_states=True,
@@ -290,7 +310,8 @@ class DistEncGenMixin(DistEncSimMixin):
 
         batch_len = max(seq_lens)
         # pad
-        pad_embedding = self.gpt2.get_input_embeddings()(torch.tensor([0], dtype=torch.long, device=self.device)).squeeze(0)
+        pad_embedding = self.gpt2.get_input_embeddings()(torch.tensor(
+            [0], dtype=torch.long, device=self.device)).squeeze(0)
         seqs = [torch.cat([seq, pad_embedding.repeat(batch_len - len(seq), 1)]) if batch_len > len(seq) else seq
                 for seq in seqs]
 

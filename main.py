@@ -1,7 +1,9 @@
 import argparse
+import os
 import json
 import logging
 import fnmatch
+import hashlib
 
 from lm_eval import tasks, evaluator
 
@@ -99,13 +101,16 @@ def main(*args):
     if args.output_path:
         with open(args.output_path, "w") as f:
             f.write(dumped)
+        fpath = args.output_path
     elif args.output_dir:
         model_args = args.model_args.replace("/", ":")
-        fpath = (f"{args.output_dir}/model={results['config']['model']}"
+        fname = (f"model={results['config']['model']}"
                  f"|tasks={','.join(task_names)}"
                  f"|model_args:{model_args}|task_args:{args.task_args}"
-                 f"|num_fewshot={args.num_fewshot}|limit={args.limit}.json")
-        with open(fpath, "w", encoding='utf-8') as f:
+                 f"|num_fewshot={args.num_fewshot}|limit={args.limit}")
+        fname = hashlib.shake_128(bytes(fname, encoding='utf-8')).hexdigest(20)
+        fpath = f"{args.output_dir}/{fname}.json"
+        with open(fpath, "wt", encoding='utf-8') as f:
             f.write(dumped)
 
     print(
@@ -113,7 +118,9 @@ def main(*args):
         f"num_fewshot: {args.num_fewshot}, batch_size: {args.batch_size}"
     )
     print(evaluator.make_table(results))
+    return fpath, results
 
 
 if __name__ == "__main__":
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
     main()

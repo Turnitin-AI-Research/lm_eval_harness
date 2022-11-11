@@ -122,16 +122,15 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "args": [
-                "--model",
-                "dist_sim",
-                "--model_args", "WORD_AGG_SCHEME=last,EXAMPLE_AGG_SCHEME=mean,SEGMENT_AGG_SCHEME=mean,NORM=layer,SIMILARITY_FUNC=dot_product",
+                "--model", "dist_sim",
+                "--model_args", "WORD_AGG_SCHEME=last,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B",
                 "--tasks",
                 "hellaswag_d",
                 "--num_fewshot",
                 "5",
                 "--device", "7",
                 "--task_args",
-                "encoding_scheme=merge_all_segments",
+                "encoding_scheme=segment_each_example",
                 "--limit",
                 "10",
                 "--no_cache"
@@ -244,5 +243,36 @@
             "cwd": "${workspaceFolder}",
             // "env": {"CUDA_LAUNCH_BLOCKING":"1"}
         },
+        {
+            "name": "wsc273",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "gpt2",
+                "--model_args", "pretrained=EleutherAI/gpt-neo-1.3B",
+                "--tasks",
+                "wsc273",
+                "--num_fewshot",
+                "0",
+                "--limit",
+                "10",
+                "--no_cache",
+                "--device", "7"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "scratch",
+            "type": "python",
+            "request": "launch",
+            "program": "scratch.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}"
+        }
     ]
 }
