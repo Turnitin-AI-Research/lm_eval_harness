@@ -32,12 +32,11 @@ class DistEncSimMixin:
         self.EXAMPLE_AGG_SCHEME: str = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
         self.SIMILARITY_FUNC: str = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
         self.NORM: str = NORM if NORM != 'None' else None
-        self.COMPOSITION_FUNC = COMPOSITION_FUNC if COMPOSITION_FUNC != 'None' else None
 
     def verify_config(self):
         assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
-        assert self.EXAMPLE_AGG_SCHEME in ['mean', None]
+        assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
         assert self.NORM in ['L2', 'layer', None]
 
@@ -189,7 +188,7 @@ class DistEncSimMixin:
             if self.EXAMPLE_AGG_SCHEME == 'mean':
                 context_embeddings = example_embeddings.mean(dim=0)  # (hidden_size,)
                 context_embeddings = self._normalize(context_embeddings).unsqueeze(0)  # (1, hidden_size)
-            elif self.EXAMPLE_AGG_SCHEME is None:
+            elif self.EXAMPLE_AGG_SCHEME in [None, 'soft_cluster']:
                 context_embeddings = example_embeddings  # (#chunks, hidden_size)
             else:
                 raise NotImplementedError
@@ -218,13 +217,13 @@ class DistEncSimMixin:
                 doc = doc.copy()
                 del doc['segments']
                 choice_embeddings = self._embed_sample(doc)['choices_embeddings']  # (#choices, hidden_size)
-                if self.COMPOSITION_FUNC == 'soft_cluster':
+                if self.EXAMPLE_AGG_SCHEME == 'soft_cluster':
                     context_embeddings = self._soft_cluster(choice_embeddings, context_embeddings)  # (#choices, hidden_size)
                 if self.SIMILARITY_FUNC == 'cosine_sim':
                     # L2 normalize vectors for cosine-sim
                     context_embeddings = torch.nn.functional.normalize(context_embeddings, p=2, dim=1)
                     choice_embeddings = torch.nn.functional.normalize(choice_embeddings, p=2, dim=1)
-                if self.COMPOSITION_FUNC == 'soft_cluster':
+                if self.EXAMPLE_AGG_SCHEME == 'soft_cluster':
                     scores = torch.sum(choice_embeddings * context_embeddings, dim=1)  # (#choices,)
                 elif self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim']:
                     scores = torch.matmul(choice_embeddings, context_embeddings.T)  # (#choices, #chunks)
