@@ -24,7 +24,7 @@ class DistEncSimMixin:
                  EXAMPLE_AGG_SCHEME: Optional[str] = 'mean',
                  SIMILARITY_FUNC: Optional[str] = None,
                  NORM: Optional[str] = None,
-                 COMPOSITION_FUNC: Optional[str] = None,
+                 ENCODING_LAYER: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.WORD_AGG_SCHEME: str = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
@@ -32,13 +32,15 @@ class DistEncSimMixin:
         self.EXAMPLE_AGG_SCHEME: str = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
         self.SIMILARITY_FUNC: str = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
         self.NORM: str = NORM if NORM != 'None' else None
+        self.ENCODING_LAYER: str = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
 
     def verify_config(self):
         assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
-        assert self.SEGMENT_AGG_SCHEME in ['mean', None]
-        assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']
-        assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
+        assert self.SEGMENT_AGG_SCHEME in ['mean', None]  # Whether to aggregate segments within a sample and if so, how.
+        assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']  # Whether to aggregate segments across samples and if so, how.
+        assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
         assert self.NORM in ['L2', 'layer', None]
+        assert self.ENCODING_LAYER in ['middle', None]  # Which transformer hidden layer to pick encodings from. None => top layer
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""
@@ -129,7 +131,7 @@ class DistEncSimMixin:
         return retdir
 
     def _reduce_word_sequences(self, model_output: Dict, model_input: Dict) -> Tensor:
-        """Aggregate a sequence of word vectors into a single concept vector
+        """Extract word vectors from model hidden states and aggregate them into a single concept vector
 
         :param model_output: Dict.
             HuggingFace model_output dict.
@@ -138,7 +140,14 @@ class DistEncSimMixin:
         :return: Tensor, shape = (batch_size, hidden_size)
             Each sequence in the batch reduced to an embedding of size hidden_size
         """
-        concept_seqs = model_output['hidden_states'][-1]  # (batch, padding-len, hidden_size)
+        encoding_layer = len(model_output['hidden_states']) // 2 if self.ENCODING_LAYER == 'middle' else -1
+        # if self.ENCODING_LAYER == 'middle':
+        #     encoding_layer = len(model_output['hidden_states']) // 2
+        # elif self.ENCODING_LAYER is None:
+        #     encoding_layer = -1
+        # else:
+        #     raise ValueError(f'Unsupported value "{self.ENCODING_LAYER}" for ENCODING_LAYER')
+        concept_seqs = model_output['hidden_states'][encoding_layer]  # (batch, padding-len, hidden_size)
         if self.WORD_AGG_SCHEME == 'last':
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
@@ -218,7 +227,8 @@ class DistEncSimMixin:
                 del doc['segments']
                 choice_embeddings = self._embed_sample(doc)['choices_embeddings']  # (#choices, hidden_size)
                 if self.EXAMPLE_AGG_SCHEME == 'soft_cluster':
-                    context_embeddings = self._soft_cluster(choice_embeddings, context_embeddings)  # (#choices, hidden_size)
+                    context_embeddings = self._soft_cluster(
+                        choice_embeddings, context_embeddings)  # (#choices, hidden_size)
                 if self.SIMILARITY_FUNC == 'cosine_sim':
                     # L2 normalize vectors for cosine-sim
                     context_embeddings = torch.nn.functional.normalize(context_embeddings, p=2, dim=1)
@@ -298,6 +308,7 @@ class DistEncGenMixin(DistEncSimMixin):
             seq2s.append(tok_seq)
             seq = torch.cat([context_embeddings, tok_emb])
             # Shift input right for autoregressive decoding and truncate from left if needed
+            # Shift-right implies that the last token is dropped. But no <BOS> token is prefixed.
             if self._should_truncate(seq, shift_inp_right):
                 _LOGGER.warning(f'Sequence of length {len(seq)} will be truncated to {self.max_length}')
             seq = seq[-(self.max_length + 1): -1] if shift_inp_right else seq[-self.max_length:]
