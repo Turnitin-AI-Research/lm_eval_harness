@@ -9,3 +9,4 @@ lmeval_results*/
 .vscode/
 .ipynb_checkpoints/
 lm_debug/
+*.out
