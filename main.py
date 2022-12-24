@@ -103,6 +103,7 @@ def main(*args):
             f.write(dumped)
         fpath = args.output_path
     elif args.output_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
         model_args = args.model_args.replace("/", ":")
         fname = (f"model={results['config']['model']}"
                  f"|tasks={','.join(task_names)}"

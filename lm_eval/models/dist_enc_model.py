@@ -1,7 +1,7 @@
 """Utilities for distributed encoding"""
-from ctypes import Union
-import logging
 from typing import Dict, List, Optional
+import re
+import logging
 from tqdm import tqdm
 import torch
 from torch import Tensor
@@ -40,7 +40,10 @@ class DistEncSimMixin:
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']  # Whether to aggregate segments across samples and if so, how.
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
         assert self.NORM in ['L2', 'layer', None]
-        assert self.ENCODING_LAYER in ['middle', None]  # Which transformer hidden layer to pick encodings from. None => top layer
+        # Which transformer hidden layer to pick encodings from. None => top layer
+        assert self.ENCODING_LAYER in ['middle', None] or re.fullmatch(r'\d+', self.ENCODING_LAYER)
+        if (self.ENCODING_LAYER is not None) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
+            self.ENCODING_LAYER = int(self.ENCODING_LAYER)
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""
@@ -140,13 +143,15 @@ class DistEncSimMixin:
         :return: Tensor, shape = (batch_size, hidden_size)
             Each sequence in the batch reduced to an embedding of size hidden_size
         """
-        encoding_layer = len(model_output['hidden_states']) // 2 if self.ENCODING_LAYER == 'middle' else -1
-        # if self.ENCODING_LAYER == 'middle':
-        #     encoding_layer = len(model_output['hidden_states']) // 2
-        # elif self.ENCODING_LAYER is None:
-        #     encoding_layer = -1
-        # else:
-        #     raise ValueError(f'Unsupported value "{self.ENCODING_LAYER}" for ENCODING_LAYER')
+        # encoding_layer = len(model_output['hidden_states']) // 2 if self.ENCODING_LAYER == 'middle' else -1
+        if isinstance(self.ENCODING_LAYER, int):
+            encoding_layer = self.ENCODING_LAYER
+        elif self.ENCODING_LAYER == 'middle':
+            encoding_layer = len(model_output['hidden_states']) // 2
+        elif self.ENCODING_LAYER is None:
+            encoding_layer = -1
+        else:
+            raise ValueError(f'Unsupported value "{self.ENCODING_LAYER}" for ENCODING_LAYER')
         concept_seqs = model_output['hidden_states'][encoding_layer]  # (batch, padding-len, hidden_size)
         if self.WORD_AGG_SCHEME == 'last':
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
@@ -169,7 +174,7 @@ class DistEncSimMixin:
                                      return_dict=True)
             segment_embeddings = self._reduce_word_sequences(
                 model_output, model_input)  # (#segments, hidden_size)
-            segment_embeddings = self._normalize(segment_embeddings)
+            # segment_embeddings = self._normalize(segment_embeddings)
             if self.SEGMENT_AGG_SCHEME == 'mean':
                 _context_embedding = segment_embeddings.mean(dim=0)  # (hidden_size,)
                 sample['context_embeddings'] = self._normalize(_context_embedding).unsqueeze(0)  # (1, hidden_size,)
@@ -185,7 +190,7 @@ class DistEncSimMixin:
                                      return_dict=True)
             sample['choices_embeddings'] = self._reduce_word_sequences(
                 model_output, model_input)  # (#choices, hidden_size)
-            sample['choices_embeddings'] = self._normalize(sample['choices_embeddings'])  # (#choices, hidden_size)
+            # sample['choices_embeddings'] = self._normalize(sample['choices_embeddings'])  # (#choices, hidden_size)
 
         return sample
 
