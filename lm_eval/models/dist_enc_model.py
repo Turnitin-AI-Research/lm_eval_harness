@@ -41,7 +41,7 @@ class DistEncSimMixin:
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
         assert self.NORM in ['L2', 'layer', None]
         # Which transformer hidden layer to pick encodings from. None => top layer
-        assert self.ENCODING_LAYER in ['middle', None] or re.fullmatch(r'\d+', self.ENCODING_LAYER)
+        assert self.ENCODING_LAYER in ['middle', None, 'E'] or re.fullmatch(r'\d+', self.ENCODING_LAYER)
         if (self.ENCODING_LAYER is not None) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
             self.ENCODING_LAYER = int(self.ENCODING_LAYER)
 
@@ -133,6 +133,42 @@ class DistEncSimMixin:
             retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
         return retdir
 
+    def _batch_embed(self, strings1: List[str]) -> Dict:
+        seq1s = [self.tok_encode(string) for string in strings1]
+        seqs, seq_lens = [], []
+        if strings2 is not None:
+            assert len(strings2) == len(strings1)
+            seq2s = []
+        for i, seq1 in enumerate(seq1s):
+            assert len(seq1) > 0
+            if strings2 is not None:
+                seq2 = self.tok_encode(strings2[i])
+                assert 0 < len(seq2) <= self.max_length
+                seq2s.append(seq2)
+                seq = seq1 + seq2
+            else:
+                seq = seq1
+            # Shift input right for autoregressive decoding and truncate from left if needed
+            if self._should_truncate(seq, shift_inp_right):
+                _LOGGER.warning(f'Sequence of length {len(seq)} will be truncated to {self.max_length}')
+            seq = seq[-(self.max_length + 1): -1] if shift_inp_right else seq[-self.max_length:]
+            seqs.append(seq)
+            seq_lens.append(len(seq))
+
+        batch_len = max(seq_lens)
+        # pad
+        seqs = [seq + [0] * (batch_len - len(seq)) for seq in seqs]
+
+        retdir = {
+            'input_ids': torch.tensor(seqs, dtype=torch.long, device=self.device),  # (N,T)
+            'seq_lens': torch.tensor(seq_lens, dtype=torch.long, device=self.device),  # (N,)
+            'attention_mask': torch.tensor([[1] * len + [0] * (batch_len - len) for len in seq_lens],
+                                           dtype=torch.long, device=self.device)  # (N,T)
+        }
+        if strings2 is not None:
+            retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
+        return retdir
+
     def _reduce_word_sequences(self, model_output: Dict, model_input: Dict) -> Tensor:
         """Extract word vectors from model hidden states and aggregate them into a single concept vector
 
@@ -144,15 +180,24 @@ class DistEncSimMixin:
             Each sequence in the batch reduced to an embedding of size hidden_size
         """
         # encoding_layer = len(model_output['hidden_states']) // 2 if self.ENCODING_LAYER == 'middle' else -1
+        encoding_layer = None
         if isinstance(self.ENCODING_LAYER, int):
             encoding_layer = self.ENCODING_LAYER
         elif self.ENCODING_LAYER == 'middle':
             encoding_layer = len(model_output['hidden_states']) // 2
         elif self.ENCODING_LAYER is None:
             encoding_layer = -1
+        elif self.ENCODING_LAYER == 'E':
+            pass
         else:
             raise ValueError(f'Unsupported value "{self.ENCODING_LAYER}" for ENCODING_LAYER')
-        concept_seqs = model_output['hidden_states'][encoding_layer]  # (batch, padding-len, hidden_size)
+        if encoding_layer is not None:
+            concept_seqs = model_output['hidden_states'][encoding_layer]  # (batch, padding-len, hidden_size)
+        elif self.ENCODING_LAYER == 'E':
+            concept_seqs = model_input['inputs_embeds']
+        else:
+            raise RuntimeError()
+
         if self.WORD_AGG_SCHEME == 'last':
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
@@ -168,10 +213,14 @@ class DistEncSimMixin:
         If choices are present, then embed each individually."""
         if 'segments' in sample:
             model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
-            model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                     attention_mask=model_input['attention_mask'],
-                                     output_hidden_states=True,
-                                     return_dict=True)
+            if self.ENCODING_LAYER != 'E':
+                model_output = self.gpt2(input_ids=model_input['input_ids'],
+                                         attention_mask=model_input['attention_mask'],
+                                         output_hidden_states=True,
+                                         return_dict=True)
+            else:
+                model_output = None
+                model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
             segment_embeddings = self._reduce_word_sequences(
                 model_output, model_input)  # (#segments, hidden_size)
             # segment_embeddings = self._normalize(segment_embeddings)
@@ -184,10 +233,14 @@ class DistEncSimMixin:
                 raise NotImplementedError
         if 'choices' in sample:
             model_input = self._tok_batch_encode(sample['choices'])  # (#choices, padded_len)
-            model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                     attention_mask=model_input['attention_mask'],
-                                     output_hidden_states=True,
-                                     return_dict=True)
+            if self.ENCODING_LAYER != 'E':
+                model_output = self.gpt2(input_ids=model_input['input_ids'],
+                                         attention_mask=model_input['attention_mask'],
+                                         output_hidden_states=True,
+                                         return_dict=True)
+            else:
+                model_output = None
+                model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
             sample['choices_embeddings'] = self._reduce_word_sequences(
                 model_output, model_input)  # (#choices, hidden_size)
             # sample['choices_embeddings'] = self._normalize(sample['choices_embeddings'])  # (#choices, hidden_size)
@@ -268,16 +321,20 @@ class DistEncGenMixin(DistEncSimMixin):
         assert self.NORM in ['L2', 'layer', None]
 
     def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
-        raise NotImplementedError('This method should not have been called')
+        raise RuntimeError('This method should not have been called')
 
     def _embed_segments(self, sample: SegmentedSample) -> Tensor:
         """Embed segments into a seqeunce of embeddings."""
         assert 'segments' in sample
         model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
-        model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                 attention_mask=model_input['attention_mask'],
-                                 output_hidden_states=True,
-                                 return_dict=True)
+        if self.ENCODING_LAYER != 'E':
+            model_output = self.gpt2(input_ids=model_input['input_ids'],
+                                     attention_mask=model_input['attention_mask'],
+                                     output_hidden_states=True,
+                                     return_dict=True)
+        else:
+            model_output = None
+            model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
         segment_embeddings = self._reduce_word_sequences(
             model_output, model_input)  # (#segments, hidden_size)
         # segment_embeddings = self._normalize(segment_embeddings)
