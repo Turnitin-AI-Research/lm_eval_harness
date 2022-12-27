@@ -36,7 +36,7 @@ class DistEncSimMixin:
         self.ENCODING_LAYER: str = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', 'relu+|mean', '-relu+|mean']
+        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]  # Whether to aggregate segments within a sample and if so, how.
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']  # Whether to aggregate segments across samples and if so, how.
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
@@ -170,6 +170,10 @@ class DistEncSimMixin:
             concept_seqs = concept_seqs - self.act(concept_seqs)
         elif self.WORD_AGG_SCHEME.startswith('relu|'):
             concept_seqs = self.act(concept_seqs)
+        elif self.WORD_AGG_SCHEME.startswith('-relu|'):
+            concept_seqs = -self.act(concept_seqs)
+        elif 'relu' in self.WORD_AGG_SCHEME:
+            raise ValueError(f'Unsupported WORD_AGG_SCHEME: {self.WORD_AGG_SCHEME}')
 
         if self.WORD_AGG_SCHEME.endswith('last'):
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
@@ -316,7 +320,7 @@ class DistEncGenMixin(DistEncSimMixin):
         super().__init__(*args, **kwargs)
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', 'relu+|mean', '-relu+|mean']
+        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None]
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
