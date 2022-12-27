@@ -6,6 +6,7 @@ from tqdm import tqdm
 import torch
 from torch import Tensor
 from lm_eval.tasks.dist_enc_tasks import SegmentedSample
+from transformers.activations import ACT2FN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class DistEncSimMixin:
         self.ENCODING_LAYER: str = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
+        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', 'relu+|mean', '-relu+|mean']
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]  # Whether to aggregate segments within a sample and if so, how.
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']  # Whether to aggregate segments across samples and if so, how.
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
@@ -44,6 +45,7 @@ class DistEncSimMixin:
         assert self.ENCODING_LAYER in ['middle', None, 'E'] or re.fullmatch(r'\d+', self.ENCODING_LAYER)
         if (self.ENCODING_LAYER is not None) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
             self.ENCODING_LAYER = int(self.ENCODING_LAYER)
+        self.act = ACT2FN[self.gpt2.config.activation_function]
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""
@@ -133,42 +135,6 @@ class DistEncSimMixin:
             retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
         return retdir
 
-    def _batch_embed(self, strings1: List[str]) -> Dict:
-        seq1s = [self.tok_encode(string) for string in strings1]
-        seqs, seq_lens = [], []
-        if strings2 is not None:
-            assert len(strings2) == len(strings1)
-            seq2s = []
-        for i, seq1 in enumerate(seq1s):
-            assert len(seq1) > 0
-            if strings2 is not None:
-                seq2 = self.tok_encode(strings2[i])
-                assert 0 < len(seq2) <= self.max_length
-                seq2s.append(seq2)
-                seq = seq1 + seq2
-            else:
-                seq = seq1
-            # Shift input right for autoregressive decoding and truncate from left if needed
-            if self._should_truncate(seq, shift_inp_right):
-                _LOGGER.warning(f'Sequence of length {len(seq)} will be truncated to {self.max_length}')
-            seq = seq[-(self.max_length + 1): -1] if shift_inp_right else seq[-self.max_length:]
-            seqs.append(seq)
-            seq_lens.append(len(seq))
-
-        batch_len = max(seq_lens)
-        # pad
-        seqs = [seq + [0] * (batch_len - len(seq)) for seq in seqs]
-
-        retdir = {
-            'input_ids': torch.tensor(seqs, dtype=torch.long, device=self.device),  # (N,T)
-            'seq_lens': torch.tensor(seq_lens, dtype=torch.long, device=self.device),  # (N,)
-            'attention_mask': torch.tensor([[1] * len + [0] * (batch_len - len) for len in seq_lens],
-                                           dtype=torch.long, device=self.device)  # (N,T)
-        }
-        if strings2 is not None:
-            retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
-        return retdir
-
     def _reduce_word_sequences(self, model_output: Dict, model_input: Dict) -> Tensor:
         """Extract word vectors from model hidden states and aggregate them into a single concept vector
 
@@ -194,36 +160,44 @@ class DistEncSimMixin:
         if encoding_layer is not None:
             concept_seqs = model_output['hidden_states'][encoding_layer]  # (batch, padding-len, hidden_size)
         elif self.ENCODING_LAYER == 'E':
-            concept_seqs = model_input['inputs_embeds']
+            concept_seqs = model_input['inputs_embeds']  # (batch, padding-len, hidden_size)
         else:
             raise RuntimeError()
 
-        if self.WORD_AGG_SCHEME == 'last':
+        if self.WORD_AGG_SCHEME.startswith('relu+|'):
+            concept_seqs = self.act(concept_seqs) + concept_seqs
+        elif self.WORD_AGG_SCHEME.startswith('-relu+|'):
+            concept_seqs = concept_seqs - self.act(concept_seqs)
+        elif self.WORD_AGG_SCHEME.startswith('relu|'):
+            concept_seqs = self.act(concept_seqs)
+
+        if self.WORD_AGG_SCHEME.endswith('last'):
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
-        elif self.WORD_AGG_SCHEME == 'mean':
+        elif self.WORD_AGG_SCHEME.endswith('mean'):
             aggregated_vectors = ((concept_seqs * model_input['attention_mask'].unsqueeze(-1)).sum(dim=1)
                                   / model_input['seq_lens'].unsqueeze(-1))
         else:
             raise NotImplementedError
         return self._normalize(aggregated_vectors)  # (batch, hidden_size)
 
+    def _embed_strings(self, strings: List[str]) -> Tensor:  # (#strings, hidden_size)
+        model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
+        if self.ENCODING_LAYER != 'E':
+            model_output = self.gpt2(input_ids=model_input['input_ids'],
+                                     attention_mask=model_input['attention_mask'],
+                                     output_hidden_states=True,
+                                     return_dict=True)
+        else:
+            model_output = None
+            model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
+        return self._reduce_word_sequences(model_output, model_input)  # (#strings, hidden_size)
+
     def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
         """Embed segments if present, into a single embedding.
         If choices are present, then embed each individually."""
         if 'segments' in sample:
-            model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
-            if self.ENCODING_LAYER != 'E':
-                model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                         attention_mask=model_input['attention_mask'],
-                                         output_hidden_states=True,
-                                         return_dict=True)
-            else:
-                model_output = None
-                model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
-            segment_embeddings = self._reduce_word_sequences(
-                model_output, model_input)  # (#segments, hidden_size)
-            # segment_embeddings = self._normalize(segment_embeddings)
+            segment_embeddings = self._embed_strings(sample['segments'])
             if self.SEGMENT_AGG_SCHEME == 'mean':
                 _context_embedding = segment_embeddings.mean(dim=0)  # (hidden_size,)
                 sample['context_embeddings'] = self._normalize(_context_embedding).unsqueeze(0)  # (1, hidden_size,)
@@ -232,20 +206,48 @@ class DistEncSimMixin:
             else:
                 raise NotImplementedError
         if 'choices' in sample:
-            model_input = self._tok_batch_encode(sample['choices'])  # (#choices, padded_len)
-            if self.ENCODING_LAYER != 'E':
-                model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                         attention_mask=model_input['attention_mask'],
-                                         output_hidden_states=True,
-                                         return_dict=True)
-            else:
-                model_output = None
-                model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
-            sample['choices_embeddings'] = self._reduce_word_sequences(
-                model_output, model_input)  # (#choices, hidden_size)
-            # sample['choices_embeddings'] = self._normalize(sample['choices_embeddings'])  # (#choices, hidden_size)
+            sample['choices_embeddings'] = self._embed_strings(sample['choices'])  # (#choices, hidden_size)
 
         return sample
+
+    # def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
+    #     """Embed segments if present, into a single embedding.
+    #     If choices are present, then embed each individually."""
+    #     if 'segments' in sample:
+    #         model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
+    #         if self.ENCODING_LAYER != 'E':
+    #             model_output = self.gpt2(input_ids=model_input['input_ids'],
+    #                                      attention_mask=model_input['attention_mask'],
+    #                                      output_hidden_states=True,
+    #                                      return_dict=True)
+    #         else:
+    #             model_output = None
+    #             model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
+    #         segment_embeddings = self._reduce_word_sequences(
+    #             model_output, model_input)  # (#segments, hidden_size)
+    #         # segment_embeddings = self._normalize(segment_embeddings)
+    #         if self.SEGMENT_AGG_SCHEME == 'mean':
+    #             _context_embedding = segment_embeddings.mean(dim=0)  # (hidden_size,)
+    #             sample['context_embeddings'] = self._normalize(_context_embedding).unsqueeze(0)  # (1, hidden_size,)
+    #         elif self.SEGMENT_AGG_SCHEME is None:
+    #             sample['context_embeddings'] = segment_embeddings  # (#segments, hidden_size)
+    #         else:
+    #             raise NotImplementedError
+    #     if 'choices' in sample:
+    #         model_input = self._tok_batch_encode(sample['choices'])  # (#choices, padded_len)
+    #         if self.ENCODING_LAYER != 'E':
+    #             model_output = self.gpt2(input_ids=model_input['input_ids'],
+    #                                      attention_mask=model_input['attention_mask'],
+    #                                      output_hidden_states=True,
+    #                                      return_dict=True)
+    #         else:
+    #             model_output = None
+    #             model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
+    #         sample['choices_embeddings'] = self._reduce_word_sequences(
+    #             model_output, model_input)  # (#choices, hidden_size)
+    #         # sample['choices_embeddings'] = self._normalize(sample['choices_embeddings'])  # (#choices, hidden_size)
+
+    #     return sample
 
     def _embed_context(self, examples: List[SegmentedSample]) -> Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
@@ -314,7 +316,7 @@ class DistEncGenMixin(DistEncSimMixin):
         super().__init__(*args, **kwargs)
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in ['last', 'mean', None]
+        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', 'relu+|mean', '-relu+|mean']
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None]
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
