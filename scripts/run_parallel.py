@@ -15,17 +15,18 @@ import ray
 ray.init(address='local')
 
 results_dir = "lmeval_results_sim_all/"
-num_fewshots = [0, 5]
+num_fewshots = [5]
 task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_d', 'dist_sim')]
 pretrained = ['EleutherAI/gpt-neo-1.3B']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
 encoding_schemes = ['segment_each_example', 'concat_each_example', 'concat_all_examples']
-word_agg_schemes = ['mean', 'last']
+# ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
+word_agg_schemes = ['-relu|mean', '-relu+|mean', '-relu+|last', '-relu|last']
 segment_agg_schemes = [None]
 example_agg_schemes = [None, 'mean', 'soft_cluster']
 norms = ['layer']
 sim_funcs = ['dot_product']
-encoding_layers = ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+encoding_layers = ['middle', None, 23, 'E', 0]  # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
 
 @ray.remote(max_calls=1, num_gpus=1)
 # @ray.remote(max_calls=1, num_cpus=4)

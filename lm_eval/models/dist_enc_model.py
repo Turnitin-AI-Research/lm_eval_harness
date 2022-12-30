@@ -167,11 +167,11 @@ class DistEncSimMixin:
         if self.WORD_AGG_SCHEME.startswith('relu+|'):
             concept_seqs = self.act(concept_seqs) + concept_seqs
         elif self.WORD_AGG_SCHEME.startswith('-relu+|'):
-            concept_seqs = concept_seqs - self.act(concept_seqs)
+            concept_seqs = concept_seqs - self.act(-concept_seqs)
         elif self.WORD_AGG_SCHEME.startswith('relu|'):
             concept_seqs = self.act(concept_seqs)
         elif self.WORD_AGG_SCHEME.startswith('-relu|'):
-            concept_seqs = -self.act(concept_seqs)
+            concept_seqs = -self.act(-concept_seqs)
         elif 'relu' in self.WORD_AGG_SCHEME:
             raise ValueError(f'Unsupported WORD_AGG_SCHEME: {self.WORD_AGG_SCHEME}')
 
