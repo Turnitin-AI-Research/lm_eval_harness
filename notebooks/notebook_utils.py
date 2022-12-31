@@ -80,14 +80,18 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics, tak
     metrics = tasks
     metrics_re = re.compile(r'^(' + r'|'.join([f'({m})' for m in metrics]) + ').*')
     print(f'metric cols regexp = {metrics_re}')
-    model_cols = ['model_type', 'pretrained', 'ENCODING_LAYER', 'WORD_AGG_SCHEME', 'SEGMENT_AGG_SCHEME', 'EXAMPLE_AGG_SCHEME', 'NORM', 'SIMILARITY_FUNC', 'DECODING_SCHEME', 'STEER_VEC_INJ_LAYERS', 'STEER_VEC_INJ_POS']
-    model_cols = {col for col in model_cols if col in df.columns}
-    task_cols = {'num_fewshot', 'encoding_scheme'}
+    model_cols = {'model_type', 'pretrained', 'ENCODING_LAYER', 'WORD_AGG_SCHEME', 'SEGMENT_AGG_SCHEME', 'EXAMPLE_AGG_SCHEME', 'NORM', 'SIMILARITY_FUNC', 'DECODING_SCHEME', 'STEER_VEC_INJ_LAYERS', 'STEER_VEC_INJ_POS'}
+    model_cols = model_cols & set(df.columns)  # {col for col in model_cols if col in df.columns}
+    task_cols = {'num_fewshot', 'encoding_scheme'} & set(df.columns)
     # metric_cols = {col for col in df.columns if metrics_re.fullmatch(col) is not None}
-    task_metric_cols = {task: [col for col in df.columns if re.fullmatch(f'^{task}.*', col)] for task in tasks}
+    task_metric_cols = {task: [col for col in df.columns if re.fullmatch(f'^{task}.*$', col)] for task in tasks}
+    task_metric_cols = {task: cols for task, cols in task_metric_cols.items() if cols}  # remove empty lists
     metric_cols = {col for cols in task_metric_cols.values() for col in cols}
-    selected_cols = task_cols | model_cols | metric_cols | {'mtime', 'filename'}
-    if (selected_cols) < set(df.columns):
+    assert metric_cols, f'No metrics found matching {metrics_re}'
+    provenance_cols = {'mtime', 'filename'}
+    selected_cols = task_cols | model_cols | metric_cols | provenance_cols
+    assert selected_cols <= set(df.columns), f'Check that task_cols, model_cols, metri_cols and provenance_cols are all <= df.columns'
+    if selected_cols < set(df.columns):
         print(f'Following columns will be dropped: {set(df.columns) - selected_cols}')
     if take_last:
         groupby_cols = (model_cols | task_cols)
@@ -109,9 +113,10 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics, tak
 def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, remove_nonvariables=True):
     if remove_nonvariables:
         cols_to_remove = [col for col in df.columns if df[col].unique().shape[0] <= 1]
-        cols_to_keep =  [col for col in df.columns if df[col].unique().shape[0] > 1]
-        df_const = df[cols_to_remove].iloc[0].rename('Constant Variables')
-        display(df_const)
+        cols_to_keep = [col for col in df.columns if df[col].unique().shape[0] > 1]
+        if len(cols_to_remove) > 0:
+            df_const = df[cols_to_remove].iloc[0].rename('Constant Variables')
+            display(df_const)
         df = df[cols_to_keep]
     else:
         df = df
