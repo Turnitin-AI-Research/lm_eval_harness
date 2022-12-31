@@ -34,6 +34,7 @@ class DistEncSimMixin:
         self.SIMILARITY_FUNC: str = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
         self.NORM: str = NORM if NORM != 'None' else None
         self.ENCODING_LAYER: str = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
+        self.act = ACT2FN[self.gpt2.config.activation_function]
 
     def verify_config(self):
         assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
@@ -45,7 +46,6 @@ class DistEncSimMixin:
         assert self.ENCODING_LAYER in ['middle', None, 'E'] or re.fullmatch(r'\d+', self.ENCODING_LAYER)
         if (self.ENCODING_LAYER is not None) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
             self.ENCODING_LAYER = int(self.ENCODING_LAYER)
-        self.act = ACT2FN[self.gpt2.config.activation_function]
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""

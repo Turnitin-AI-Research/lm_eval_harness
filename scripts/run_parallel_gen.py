@@ -27,7 +27,7 @@ example_agg_schemes = [None, 'mean', 'soft_cluster']
 norms = ['layer']
 sim_funcs = ['dot_product']
 # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-encoding_layers = ['E', 0, 6, 'middle', 18, 23, None]
+encoding_layers = ['middle', 23, None, 'E', 0, 6, 18]
 
 @ray.remote(max_calls=1, num_gpus=1)
 # @ray.remote(max_calls=1, num_cpus=4)
