@@ -113,6 +113,8 @@ def main(*args):
         fpath = f"{args.output_dir}/{fname}.json"
         with open(fpath, "wt", encoding='utf-8') as f:
             f.write(dumped)
+    else:
+        fpath = None
 
     print(
         f"{args.model} ({args.model_args}), limit: {args.limit}, provide_description: {args.provide_description}, "

@@ -76,7 +76,7 @@ def read_results(dir: str) -> pd.DataFrame:
     return df
 
 
-def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics) -> pd.DataFrame:
+def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics, take_last=True) -> pd.DataFrame:
     metrics = tasks
     metrics_re = re.compile(r'^(' + r'|'.join([f'({m})' for m in metrics]) + ').*')
     print(f'metric cols regexp = {metrics_re}')
@@ -89,17 +89,21 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics) -> 
     selected_cols = task_cols | model_cols | metric_cols | {'mtime', 'filename'}
     if (selected_cols) < set(df.columns):
         print(f'Following columns will be dropped: {set(df.columns) - selected_cols}')
-    # groupby_cols = (model_cols | task_cols)
-    # def take_last(_df: pd.DataFrame) -> pd.DataFrame:
-    #     _df = _df.sort_values(by='mtime', ascending=False)
-    #     # return pd.Series({col: _df[col].dropna().iloc[0] if _df[col].dropna().shape[0] >=1 else None for col in _df.columns if col in metric_cols})
-    #     return pd.concat([_df[task_metric_cols[task]].dropna().iloc[0] for task in tasks])
-    # df2 = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False).aggregate(take_last).dropna(how='all')
-    df2 = df[list(selected_cols)].reset_index(drop=True)
-    df2 = df2.assign(date=pd.to_datetime(df2.mtime, origin='unix', unit='s', utc=True).dt.tz_convert('US/Pacific'))
-    if len(df2) > 0 and sort_metrics:
-        df2 = df2.sort_values(by=sort_metrics, ascending=False)
-    return df2
+    if take_last:
+        groupby_cols = (model_cols | task_cols)
+        def _take_last(_df: pd.DataFrame) -> pd.DataFrame:
+            _df = _df.sort_values(by='mtime', ascending=False)
+            # return pd.Series({col: _df[col].dropna().iloc[0] if _df[col].dropna().shape[0] >=1 else None for col in _df.columns if col in metric_cols})
+            rows = [_df[task_metric_cols[task]].dropna().iloc[0] for task in tasks]
+            return pd.concat(rows)
+        df = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False).aggregate(_take_last).dropna(how='all')
+        df = df.reset_index(drop=False)
+    else:
+        df = df[list(selected_cols)].reset_index(drop=True)
+        df = df.assign(date=pd.to_datetime(df.mtime, origin='unix', unit='s', utc=True).dt.tz_convert('US/Pacific'))
+    if len(df) > 0 and sort_metrics:
+        df = df.sort_values(by=sort_metrics, ascending=False)
+    return df
 
 
 def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, remove_nonvariables=True):

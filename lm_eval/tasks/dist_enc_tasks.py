@@ -194,8 +194,11 @@ class DistEncTaskMixin:
         if self.ENCODING_SCHEME in ['concat_all_examples']:
             return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
         elif self.ENCODING_SCHEME == 'cross_encoding':
-            return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)],
-                                   choices=[(self.QA_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])])
+            if 'answer_hint' not in doc:
+                choices = [(self.QA_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
+            else:
+                choices = [(self.HINT_ANSWER_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
+            return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)], choices=choices)
         elif self.ENCODING_SCHEME == 'merge_all_segments':
             return SegmentedSample(task=doc.task, segments=segments)
         else:
