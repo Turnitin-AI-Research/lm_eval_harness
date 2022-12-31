@@ -423,7 +423,7 @@ class DistEncGenMixin(DistEncSimMixin):
                     assert len(context) == 1
                     assert len(context[0]['segments']) == 1
                     ctx = context[0]['segments'][0]
-                    choices = context[0]['choices']
+                    choices = context[0]['choices']  # Specially constructed choices for cross-encoding
                     # TODO: If ctx == '' context_enc = [eot_token_id]
                     # Run each choice separately to avoid OOM with large models
                     for choice in choices:
