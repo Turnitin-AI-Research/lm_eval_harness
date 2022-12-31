@@ -76,7 +76,7 @@ def read_results(dir: str) -> pd.DataFrame:
     return df
 
 
-def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics, take_last=True) -> pd.DataFrame:
+def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], take_last=True) -> pd.DataFrame:
     metrics = tasks
     metrics_re = re.compile(r'^(' + r'|'.join([f'({m})' for m in metrics]) + ').*')
     print(f'metric cols regexp = {metrics_re}')
@@ -98,9 +98,20 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics, tak
         def _take_last(_df: pd.DataFrame) -> pd.DataFrame:
             _df = _df.sort_values(by='mtime', ascending=False)
             # return pd.Series({col: _df[col].dropna().iloc[0] if _df[col].dropna().shape[0] >=1 else None for col in _df.columns if col in metric_cols})
-            rows = [_df[task_metric_cols[task]].dropna().iloc[0] for task in tasks]
-            return pd.concat(rows)
-        df = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False).aggregate(_take_last).dropna(how='all')
+            metric_values = []
+            for task in tasks:
+                _task_metrics_df = _df[task_metric_cols[task]]
+                _no_nans = _task_metrics_df.dropna()
+                if len(_no_nans) > 0:
+                    _task_metrics_sr = _no_nans.iloc[0]
+                else:
+                    # Couldn't find metrics
+                    print(f'Did not find metrics: {_task_metrics_df.columns} for one group. Setting as NaN.')
+                    _task_metrics_sr = _task_metrics_df.iloc[0]
+                metric_values.append(_task_metrics_sr)
+            # rows = [_df[task_metric_cols[task]].dropna().iloc[0] for task in tasks]
+            return pd.concat(metric_values)
+        df = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False).agg(_take_last).dropna(how='all')
         df = df.reset_index(drop=False)
     else:
         df = df[list(selected_cols)].reset_index(drop=True)
