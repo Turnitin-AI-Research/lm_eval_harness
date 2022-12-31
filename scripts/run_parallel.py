@@ -14,12 +14,12 @@ import ray
 # ray cluster that was started in another environment.
 ray.init(address='local')
 
-results_dir = "lmeval_results_gen/"
-num_fewshots = [5]
-task_models = [('hellaswag_dg', 'dist_gen'), ('webqs_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
+results_dir = "lmeval_results_sim_all/"
+num_fewshots = [0, 5]
+task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
 pretrained = ['EleutherAI/gpt-neo-1.3B']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-encoding_schemes = ['segment_each_example', 'concat_each_example', 'concat_all_examples']
+encoding_schemes = ['sentence_level_segmentation']
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
 word_agg_schemes = ['relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean', 'mean', '-relu|last', 'relu+|last', 'relu|last', '-relu+|last' 'last']  # ['-relu+|mean', '-relu+|last', '-relu|last']
 segment_agg_schemes = [None]

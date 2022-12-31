@@ -90,12 +90,13 @@ class DistEncTaskMixin:
         if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'cross_encoding'] and (len(doc['segments']) > 1):
             out_doc = doc.copy()
             out_doc['segments'] = [self.SEGMENT_DELIMITER.join(doc['segments'])]
-            return out_doc
         elif self.ENCODING_SCHEME == 'sentence_level_segmentation':
+            out_doc = doc.copy()
             out_doc['choices_sents'] = [nltk.tokenize.sent_tokenize(choice) for choice in out_doc['choices']]
             out_doc['answer_hint_sents'] = self.ANSWER_HINT_SENTS if self.ANSWER_HINT_SENTS is None else []
         else:
-            return doc
+            out_doc = doc
+        return out_doc
 
     def _answer_text(self, doc: Dict, *, choice: Optional[int] = None) -> str:
         """Given a choice number, return a formatted answer text along with QA-delimiter prefix"""
