@@ -121,7 +121,7 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
     return df
 
 
-def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, remove_nonvariables=True):
+def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, remove_nonvariables=True, colorscale='cividis'):
     if remove_nonvariables:
         cols_to_remove = [col for col in df.columns if df[col].unique().shape[0] <= 1]
         cols_to_keep = [col for col in df.columns if df[col].unique().shape[0] > 1]
@@ -141,10 +141,10 @@ def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, rem
             )
     )
     # fig = px.parallel_categories(df, color='hellaswag:acc', dimensions=[col for col in df_hellaswag.columns if not col.startswith('hellaswag:acc')] + ['hellaswag:acc'],
-    #                              color_continuous_scale='cividis', height=700)
+    #                              color_continuous_scale=colorscale, height=700)
     layout_args = {
         'height': height,
-        'coloraxis': {'colorscale': 'cividis',
+        'coloraxis': {'colorscale': colorscale,
                       'showscale': True,
                       'colorbar': {'lenmode': 'fraction', 'len': 1.0, 'yanchor': 'top', 'y': 1.0}
                       },
