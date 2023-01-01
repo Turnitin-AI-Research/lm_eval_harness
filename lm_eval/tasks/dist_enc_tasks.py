@@ -142,7 +142,7 @@ class DistEncTaskMixin:
         * Reorganize the doc as one fewshot example.
         * Remove all unnecessary info.
         """
-        # doc = self.process_segments(doc)
+        # TODO: Delimiters are also hints. Therefore include them in the segments - same as hints.
         if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding', 'concat_each_example']:
             # assert len(doc['segments']) == 1
             context = self.SEGMENT_DELIMITER.join(doc['segments']) if len(doc['segments']) > 1 else doc['segments'][0]
@@ -165,7 +165,7 @@ class DistEncTaskMixin:
         * Reorganize the doc as one fewshot example without the answer. This is meant for the query example only.
         * Remove all unnecessary info.
         """
-        # doc = self.process_segments(doc)
+        # TODO: Delimiters are also hints. Therefore include them in the segments - same as hints.
         if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding', 'concat_each_example']:
             # assert len(doc['segments']) == 1
             context = self.SEGMENT_DELIMITER.join(doc['segments']) if len(doc['segments']) > 1 else doc['segments'][0]

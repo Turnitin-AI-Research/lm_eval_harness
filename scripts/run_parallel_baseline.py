@@ -17,7 +17,7 @@ ray.init(address='local')
 results_dir = "lmeval_results_baseline/"
 num_fewshots = [0, 5]
 # ('hellaswag_d', 'dist_sim'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
-task_models = [('hellaswag_dg', 'dist_gen')]  # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
+task_models = [('webqs_dg', 'dist_gen'), ('hellaswag_dg', 'dist_gen')]  # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
 encoding_scheme = 'cross_encoding'
 pretrained = ['EleutherAI/gpt-neo-1.3B']
 
