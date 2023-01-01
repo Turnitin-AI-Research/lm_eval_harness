@@ -7,6 +7,8 @@ MODEL_REGISTRY = {
     "gpt2": gpt2.GPT2LM,
     "gpt3": gpt3.GPT3LM,
     "dummy": dummy.DummyLM,
+    "dist_sim": gpt2.DistributedSim,
+    "dist_gen": gpt2.DistributedGen
 }
 
 

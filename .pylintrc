@@ -1,0 +1,77 @@
+[MESSAGES CONTROL]
+disable=consider-using-enumerate,
+  fixme,
+  invalid-name,
+  invalid-unary-operand-type,  # false positive https://github.com/PyCQA/pylint/issues/1472
+  logging-fstring-interpolation,logging-not-lazy,
+  no-else-break,no-else-continue,no-else-raise,no-else-return,
+  R0801,  # similar lines across files
+  super-with-arguments,
+  unsubscriptable-object,  # failing to infer correct type from astroid https://github.com/PyCQA/pylint/issues/2849
+  consider-using-from-import,
+  not-callable,
+  too-few-public-methods,
+  too-many-ancestors,
+  too-many-arguments,
+  too-many-boolean-expressions,
+  too-many-branches,
+  too-many-instance-attributes,
+  too-many-locals,
+  too-many-nested-blocks,
+  too-many-public-methods,
+  too-many-return-statements,
+  too-many-statements,
+  unused-import,
+  unnecessary-pass,
+  unused-variable,
+  useless-super-delegation,
+  missing-function-docstring,  # lm-evaluation-harness code doesn't enforce this
+  missing-class-docstring,  # lm-evaluation-harness code doesn't enforce this
+  missing-module-docstring,  # lm-evaluation-harness code doesn't enforce this
+  line-too-long  # delegate to pycodestyle
+
+[MASTER]
+
+# A comma-separated list of package or module names from where C extensions may
+# be loaded. Extensions are loading into the active Python interpreter and may
+# run arbitrary code
+extension-pkg-whitelist=numpy
+
+[TYPECHECK]
+
+# List of module names for which member attributes should not be checked
+# (useful for modules/projects where namespaces are manipulated during runtime
+# and thus existing member attributes cannot be deduced by static analysis. It
+# supports qualified module names, as well as Unix pattern matching.
+ignored-modules=cv2,numpy,tensorflow,torch.*,torch.tensor
+
+# List of classes names for which member attributes should not be checked
+# (useful for classes with attributes dynamically set). This supports can work
+# with qualified names.
+ignored-classes=cv2,numpy,tensorflow,torch
+
+generated-members=numpy.*,torch.*,torch.tensor
+
+[BASIC]
+
+# Regular expression which should only match correct function names
+function-rgx=[a-z_][a-z0-9_]{2,70}$
+
+# Regular expression which should only match correct method names
+method-rgx=[a-z_][a-z0-9_]{2,70}$
+
+[FORMAT]
+
+# Maximum number of characters on a single line.
+max-line-length = 130
+
+[DESIGN]
+# Minimum number of public methods for a class (see R0903).
+min-public-methods = 0
+
+# Maximum number of attributes for a class (see R0902).
+max-attributes = 15
+
+max-locals = 18
+
+max-args = 10

@@ -1,7 +1,9 @@
 import argparse
+import os
 import json
 import logging
 import fnmatch
+import hashlib
 
 from lm_eval import tasks, evaluator
 
@@ -25,23 +27,25 @@ class MultiChoice:
             yield choice
 
 
-def parse_args():
+def parse_args(*args):
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", required=True)
     parser.add_argument("--model_args", default="")
     parser.add_argument("--tasks", default=None, choices=MultiChoice(tasks.ALL_TASKS))
+    parser.add_argument("--task_args", default="")
     parser.add_argument("--provide_description", action="store_true")
     parser.add_argument("--num_fewshot", type=int, default=0)
     parser.add_argument("--batch_size", type=int, default=None)
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--output_path", default=None)
-    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--output_dir", default=None)
+    parser.add_argument("--limit", type=str, default=None)
     parser.add_argument("--no_cache", action="store_true")
     parser.add_argument("--decontamination_ngrams_path", default=None)
     parser.add_argument("--description_dict_path", default=None)
     parser.add_argument("--check_integrity", action="store_true")
 
-    return parser.parse_args()
+    return parser.parse_args(args=None if not args else args)
 
 
 # Returns a list containing all values of the source_list that
@@ -54,8 +58,8 @@ def pattern_match(patterns, source_list):
     return list(task_names)
 
 
-def main():
-    args = parse_args()
+def main(*args):
+    args = parse_args(*args)
 
     assert not args.provide_description  # not implemented
 
@@ -80,6 +84,7 @@ def main():
         model=args.model,
         model_args=args.model_args,
         tasks=task_names,
+        task_args=args.task_args,
         num_fewshot=args.num_fewshot,
         batch_size=args.batch_size,
         device=args.device,
@@ -96,13 +101,29 @@ def main():
     if args.output_path:
         with open(args.output_path, "w") as f:
             f.write(dumped)
+        fpath = args.output_path
+    elif args.output_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
+        model_args = args.model_args.replace("/", ":")
+        fname = (f"model={results['config']['model']}"
+                 f"|tasks={','.join(task_names)}"
+                 f"|model_args:{model_args}|task_args:{args.task_args}"
+                 f"|num_fewshot={args.num_fewshot}|limit={args.limit}")
+        fname = hashlib.shake_128(bytes(fname, encoding='utf-8')).hexdigest(20)
+        fpath = f"{args.output_dir}/{fname}.json"
+        with open(fpath, "wt", encoding='utf-8') as f:
+            f.write(dumped)
+    else:
+        fpath = None
 
     print(
         f"{args.model} ({args.model_args}), limit: {args.limit}, provide_description: {args.provide_description}, "
         f"num_fewshot: {args.num_fewshot}, batch_size: {args.batch_size}"
     )
     print(evaluator.make_table(results))
+    return fpath, results
 
 
 if __name__ == "__main__":
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = "0"
     main()

@@ -3,6 +3,7 @@ from typing import List, Union
 
 import sacrebleu
 import lm_eval.base
+from lm_eval import utils
 
 from . import superglue
 from . import glue
@@ -50,6 +51,7 @@ from . import blimp
 from . import asdiv
 from . import gsm8k
 from . import storycloze
+from . import dist_enc_tasks
 
 ########################################
 # Translation tasks
@@ -283,6 +285,11 @@ TASK_REGISTRY = {
     # "storycloze_2016": storycloze.StoryCloze2016,
     # "storycloze_2018": storycloze.StoryCloze2018,
     # "sat": sat.SATAnalogies,
+
+    "hellaswag_d": dist_enc_tasks.HellaSwagDist,
+    "hellaswag_dg": dist_enc_tasks.make_gen_class(dist_enc_tasks.HellaSwagDist),
+    "webqs_d": dist_enc_tasks.WebQsDist,
+    "webqs_dg": dist_enc_tasks.make_gen_class(dist_enc_tasks.WebQsDist)
 }
 
 
@@ -311,9 +318,9 @@ def get_task_name_from_object(task_object):
     )
 
 
-def get_task_dict(task_name_list: List[Union[str, lm_eval.base.Task]]):
+def get_task_dict(task_name_list: List[Union[str, lm_eval.base.Task]], task_args: str = ''):
     task_name_dict = {
-        task_name: get_task(task_name)()
+        task_name: get_task(task_name)(**utils.simple_parse_args_string(task_args))
         for task_name in task_name_list
         if isinstance(task_name, str)
     }
