@@ -43,8 +43,9 @@ class DistEncSimMixin:
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
         assert self.NORM in ['L2', 'layer', None]
         # Which transformer hidden layer to pick encodings from. None => top layer
-        assert self.ENCODING_LAYER in ['middle', None, 'E'] or re.fullmatch(r'\d+', self.ENCODING_LAYER)
-        if (self.ENCODING_LAYER is not None) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
+        print(f'self.ENCODING_LAYER = {type(self.ENCODING_LAYER)}:{self.ENCODING_LAYER}')
+        assert (self.ENCODING_LAYER in ['middle', None, 'E']) or isinstance(self.ENCODING_LAYER, int) or re.fullmatch(r'\d+', self.ENCODING_LAYER)
+        if isinstance(self.ENCODING_LAYER, str) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
             self.ENCODING_LAYER = int(self.ENCODING_LAYER)
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
@@ -320,37 +321,34 @@ class DistEncGenMixin(DistEncSimMixin):
         super().__init__(*args, **kwargs)
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
-        assert self.SEGMENT_AGG_SCHEME in ['mean', None]
+        super().verify_config()
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None]
-        assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]
-        assert self.NORM in ['L2', 'layer', None]
+        assert self.SIMILARITY_FUNC is None
 
-    def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
-        raise RuntimeError('This method should not have been called')
+    # def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
+    #     raise RuntimeError('This method should not have been called')
 
     def _embed_segments(self, sample: SegmentedSample) -> Tensor:
         """Embed segments into a seqeunce of embeddings."""
         assert 'segments' in sample
-        model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
-        if self.ENCODING_LAYER != 'E':
-            model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                     attention_mask=model_input['attention_mask'],
-                                     output_hidden_states=True,
-                                     return_dict=True)
-        else:
-            model_output = None
-            model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
-        segment_embeddings = self._reduce_word_sequences(
-            model_output, model_input)  # (#segments, hidden_size)
-        # segment_embeddings = self._normalize(segment_embeddings)
-        if self.SEGMENT_AGG_SCHEME == 'mean':
-            context_embeddings = segment_embeddings.mean(dim=0).unsqueeze(0)  # (1, hidden_size,)
-            context_embeddings = self._normalize(context_embeddings)  # (1, hidden_size,)
-        else:
-            context_embeddings = segment_embeddings  # (#segments, hidden_size)
-
-        return context_embeddings  # (#segments, hidden_size)
+        return self._embed_sample({'segments': sample['segments']})['context_embeddings']
+        # model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
+        # if self.ENCODING_LAYER != 'E':
+        #     model_output = self.gpt2(input_ids=model_input['input_ids'],
+        #                              attention_mask=model_input['attention_mask'],
+        #                              output_hidden_states=True,
+        #                              return_dict=True)
+        # else:
+        #     model_output = None
+        #     model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
+        # segment_embeddings = self._reduce_word_sequences(model_output, model_input)  # (#segments, hidden_size)
+        # # segment_embeddings = self._normalize(segment_embeddings)
+        # if self.SEGMENT_AGG_SCHEME == 'mean':
+        #     context_embeddings = segment_embeddings.mean(dim=0).unsqueeze(0)  # (1, hidden_size,)
+        #     context_embeddings = self._normalize(context_embeddings)  # (1, hidden_size,)
+        # else:
+        #     context_embeddings = segment_embeddings  # (#segments, hidden_size)
+        # return context_embeddings  # (#segments, hidden_size)
 
     def _embed_context(self, examples: List[SegmentedSample]) -> Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a sequence of embedding vectors"""
@@ -422,36 +420,29 @@ class DistEncGenMixin(DistEncSimMixin):
                 if doc.task.ENCODING_SCHEME == 'cross_encoding':
                     assert len(context) == 1
                     assert len(context[0]['segments']) == 1
-                    ctx = context[0]['segments'][0]
-                    choices = context[0]['choices']  # Specially constructed choices for cross-encoding
                     # TODO: If ctx == '' context_enc = [eot_token_id]. Line 193 in base.py
-                    # Run each choice separately to avoid OOM with large models
-                    for choice in choices:
-                        model_input = self._tok_batch_encode([ctx], strings2=[choice], shift_inp_right=True)
-                        model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                                 attention_mask=model_input['attention_mask'],
-                                                 output_hidden_states=True,
-                                                 return_dict=True)
-                        logprobs.append(
-                            torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
-                        )
-                        seq2s.extend(model_input['seq2s'])
-                        seq_lens.extend(model_input['seq_lens'])
+                    ctx = context[0]['segments'][0]
                 else:
                     context_embeddings = self._embed_context(context)  # (seq_len, hidden_size)
-                    # Embed each choice one by one to avoid OOM with large models
-                    for choice in doc['choices']:
-                        # model_input = self._input_embed_words(context_embeddings, doc['choices'])
+                # Run each choice separately to avoid OOM with large models
+                for choice in doc['gen_choices']:  # changed from context[0]['choices']
+                    input_ids = inputs_embeds = None
+                    if doc.task.ENCODING_SCHEME == 'cross_encoding':
+                        model_input = self._tok_batch_encode([ctx], strings2=[choice], shift_inp_right=True)
+                        input_ids, inputs_embeds = model_input['input_ids'], None
+                    else:
                         model_input = self._input_embed_words(context_embeddings, [choice], shift_inp_right=True)
-                        model_output = self.gpt2(inputs_embeds=model_input['inputs_embeds'],
-                                                 attention_mask=model_input['attention_mask'],
-                                                 output_hidden_states=True,
-                                                 return_dict=True)
-                        logprobs.append(
-                            torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
-                        )  # (#choices, seq_len, vocab)
-                        seq2s.extend(model_input['seq2s'])
-                        seq_lens.extend(model_input['seq_lens'])
+                        input_ids, inputs_embeds = None, model_input['inputs_embeds']
+
+                    model_output = self.gpt2(input_ids=input_ids, inputs_embeds=inputs_embeds,
+                                             attention_mask=model_input['attention_mask'],
+                                             output_hidden_states=True,
+                                             return_dict=True)
+                    logprobs.append(
+                        torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
+                    )  # (#choices, seq_len, vocab)
+                    seq2s.extend(model_input['seq2s'])
+                    seq_lens.extend(model_input['seq_lens'])
 
                 score_list, is_exact_match = [], []
                 for i, choice_seq in enumerate(seq2s):

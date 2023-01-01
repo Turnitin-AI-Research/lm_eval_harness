@@ -17,7 +17,8 @@ ray.init(address='local')
 results_dir = "lmeval_results_baseline/"
 num_fewshots = [0, 5]
 # ('hellaswag_d', 'dist_sim'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
-task_models = [('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
+task_models = [('hellaswag_dg', 'dist_gen')]  # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
+encoding_scheme = 'cross_encoding'
 pretrained = ['EleutherAI/gpt-neo-1.3B']
 
 
@@ -43,6 +44,8 @@ for num_fewshot, (task, model), submodel in itertools.product(
     ]
     if submodel is not None:
         _args.extend(['--model_args', f'pretrained={submodel}'])
+    if encoding_scheme:
+        _args.extend(['--task_args', f'encoding_scheme={encoding_scheme}'])
     future = run_eval.remote(_args)
     futures.append(future)
 

@@ -23,9 +23,9 @@ encoding_schemes = ['segment_each_example', 'concat_each_example', 'concat_all_e
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
 word_agg_schemes = ['relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean', 'mean', '-relu|last', 'relu+|last', 'relu|last', '-relu+|last' 'last']  # ['-relu+|mean', '-relu+|last', '-relu|last']
 segment_agg_schemes = [None]
-example_agg_schemes = [None, 'mean', 'soft_cluster']
+example_agg_schemes = [None, 'mean']
 norms = ['layer']
-sim_funcs = ['dot_product']
+sim_funcs = [None]
 # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
 encoding_layers = ['middle', 23, None, 'E', 0, 6, 18]
 

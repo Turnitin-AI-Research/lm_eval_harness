@@ -83,19 +83,22 @@ class DistEncTaskMixin:
     @property
     def config(self):
         rexp = re.compile(r'[A-Z_]+')
-        return {k:v for k, v in vars(self).items() if rexp.fullmatch(k)}
+        return {k: v for k, v in vars(self).items() if rexp.fullmatch(k)}
 
-    def process_segments(self, doc: SegmentedSample) -> SegmentedSample:
-        """Reorganize doc segments based on encoding scheme"""
+    def _prepare_doc(self, doc: SegmentedSample) -> SegmentedSample:
+        """Reorganize doc based on task parameters"""
+        out_doc = doc.copy()
         if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'cross_encoding'] and (len(doc['segments']) > 1):
-            out_doc = doc.copy()
             out_doc['segments'] = [self.SEGMENT_DELIMITER.join(doc['segments'])]
         elif self.ENCODING_SCHEME == 'sentence_level_segmentation':
-            out_doc = doc.copy()
             out_doc['choices_sents'] = [nltk.tokenize.sent_tokenize(choice) for choice in out_doc['choices']]
             out_doc['answer_hint_sents'] = self.ANSWER_HINT_SENTS if self.ANSWER_HINT_SENTS is None else []
-        else:
-            out_doc = doc
+        # Prepend choices with appropraite separator for generative mode.
+        if self.TASK_TYPE == 'gen' or self.ENCODING_SCHEME == 'cross_encoding':
+            if not self.ANSWER_HINT:
+                out_doc['gen_choices'] = [(self.QA_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
+            else:
+                out_doc['gen_choices'] = [(self.HINT_ANSWER_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
         return out_doc
 
     def _answer_text(self, doc: Dict, *, choice: Optional[int] = None) -> str:
@@ -195,11 +198,12 @@ class DistEncTaskMixin:
         if self.ENCODING_SCHEME in ['concat_all_examples']:
             return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
         elif self.ENCODING_SCHEME == 'cross_encoding':
-            if 'answer_hint' not in doc:
-                choices = [(self.QA_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
-            else:
-                choices = [(self.HINT_ANSWER_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
-            return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)], choices=choices)
+            # if 'answer_hint' not in doc:
+            #     choices = [(self.QA_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
+            # else:
+            #     choices = [(self.HINT_ANSWER_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
+            # return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)], choices=choices)
+            return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
         elif self.ENCODING_SCHEME == 'merge_all_segments':
             return SegmentedSample(task=doc.task, segments=segments)
         else:
@@ -217,6 +221,7 @@ class DistEncTaskMixin:
     ) -> List[SegmentedSample]:
         """Returns a fewshot context list that is made up of a prepended description
         (if provided), the `num_fewshot` number of examples, and an appended prompt example.
+        invoked by evaluator.py
 
         :param doc: SegmentedSample
             The document as returned from training_docs, validation_docs, or test_docs.
@@ -405,7 +410,7 @@ class HellaSwagDist(DistEncTaskMixin, hellaswag.HellaSwag):
             out_doc['context_sents'] = nltk.tokenize.sent_tokenize(out_doc['query'])
         # Indices of one or more correct targets from out_doc['choices']
         out_doc['gold_indices'] = [out_doc['gold']]
-        return self.process_segments(out_doc)
+        return self._prepare_doc(out_doc)
 
 
 class WebQsDist(DistEncTaskMixin, webqs.WebQs):
@@ -464,7 +469,7 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         # All out_doc['choices'] are gold targets
         out_doc['gold_indices'] = list(range(len(out_doc['choices'])))
         out_doc['gold'] = None  # Indicates we have more than one possible targets
-        return self.process_segments(out_doc)
+        return self._prepare_doc(out_doc)
 
     def process_results(self, doc: SegmentedSample, results: List[torch.Tensor]):
         """All choices in the test set are gold targets"""

@@ -27,7 +27,8 @@ disable=consider-using-enumerate,
   useless-super-delegation,
   missing-function-docstring,  # lm-evaluation-harness code doesn't enforce this
   missing-class-docstring,  # lm-evaluation-harness code doesn't enforce this
-  missing-module-docstring  # lm-evaluation-harness code doesn't enforce this
+  missing-module-docstring,  # lm-evaluation-harness code doesn't enforce this
+  line-too-long  # delegate to pycodestyle
 
 [MASTER]
 
