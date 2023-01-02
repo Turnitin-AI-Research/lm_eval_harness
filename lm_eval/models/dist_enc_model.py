@@ -215,45 +215,6 @@ class DistEncSimMixin:
 
         return sample
 
-    # def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
-    #     """Embed segments if present, into a single embedding.
-    #     If choices are present, then embed each individually."""
-    #     if 'segments' in sample:
-    #         model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
-    #         if self.ENCODING_LAYER != 'E':
-    #             model_output = self.gpt2(input_ids=model_input['input_ids'],
-    #                                      attention_mask=model_input['attention_mask'],
-    #                                      output_hidden_states=True,
-    #                                      return_dict=True)
-    #         else:
-    #             model_output = None
-    #             model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
-    #         segment_embeddings = self._reduce_word_sequences(
-    #             model_output, model_input)  # (#segments, hidden_size)
-    #         # segment_embeddings = self._normalize(segment_embeddings)
-    #         if self.SEGMENT_AGG_SCHEME == 'mean':
-    #             _context_embedding = segment_embeddings.mean(dim=0)  # (hidden_size,)
-    #             sample['context_embeddings'] = self._normalize(_context_embedding).unsqueeze(0)  # (1, hidden_size,)
-    #         elif self.SEGMENT_AGG_SCHEME is None:
-    #             sample['context_embeddings'] = segment_embeddings  # (#segments, hidden_size)
-    #         else:
-    #             raise NotImplementedError
-    #     if 'choices' in sample:
-    #         model_input = self._tok_batch_encode(sample['choices'])  # (#choices, padded_len)
-    #         if self.ENCODING_LAYER != 'E':
-    #             model_output = self.gpt2(input_ids=model_input['input_ids'],
-    #                                      attention_mask=model_input['attention_mask'],
-    #                                      output_hidden_states=True,
-    #                                      return_dict=True)
-    #         else:
-    #             model_output = None
-    #             model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
-    #         sample['choices_embeddings'] = self._reduce_word_sequences(
-    #             model_output, model_input)  # (#choices, hidden_size)
-    #         # sample['choices_embeddings'] = self._normalize(sample['choices_embeddings'])  # (#choices, hidden_size)
-
-    #     return sample
-
     def _embed_context(self, examples: List[SegmentedSample]) -> Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
         example_embeddings = [self._embed_sample(example)['context_embeddings'] for example in examples]
@@ -328,31 +289,14 @@ class DistEncGenMixin(DistEncSimMixin):
     # def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
     #     raise RuntimeError('This method should not have been called')
 
-    def _embed_segments(self, sample: SegmentedSample) -> Tensor:
+    def _embed_example_segments(self, sample: SegmentedSample) -> Tensor:
         """Embed segments into a seqeunce of embeddings."""
         assert 'segments' in sample
         return self._embed_sample({'segments': sample['segments']})['context_embeddings']
-        # model_input = self._tok_batch_encode(sample['segments'])  # (#segments, padded_len)
-        # if self.ENCODING_LAYER != 'E':
-        #     model_output = self.gpt2(input_ids=model_input['input_ids'],
-        #                              attention_mask=model_input['attention_mask'],
-        #                              output_hidden_states=True,
-        #                              return_dict=True)
-        # else:
-        #     model_output = None
-        #     model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
-        # segment_embeddings = self._reduce_word_sequences(model_output, model_input)  # (#segments, hidden_size)
-        # # segment_embeddings = self._normalize(segment_embeddings)
-        # if self.SEGMENT_AGG_SCHEME == 'mean':
-        #     context_embeddings = segment_embeddings.mean(dim=0).unsqueeze(0)  # (1, hidden_size,)
-        #     context_embeddings = self._normalize(context_embeddings)  # (1, hidden_size,)
-        # else:
-        #     context_embeddings = segment_embeddings  # (#segments, hidden_size)
-        # return context_embeddings  # (#segments, hidden_size)
 
     def _embed_context(self, examples: List[SegmentedSample]) -> Tensor:
         """Embed a context (represented as a list of SegmentedSamples) into a sequence of embedding vectors"""
-        example_embeddings = [self._embed_segments(example) for example in examples]
+        example_embeddings = [self._embed_example_segments(example) for example in examples]
         example_embeddings = torch.cat(example_embeddings, dim=0)  # (seq_len, hidden_size)
         if len(example_embeddings) > 1 and self.EXAMPLE_AGG_SCHEME == 'mean':
             context_embeddings = example_embeddings.mean(dim=0)
@@ -425,7 +369,7 @@ class DistEncGenMixin(DistEncSimMixin):
                 else:
                     context_embeddings = self._embed_context(context)  # (seq_len, hidden_size)
                 # Run each choice separately to avoid OOM with large models
-                for choice in doc['gen_choices']:  # changed from context[0]['choices']
+                for choice in doc['choices']:
                     input_ids = inputs_embeds = None
                     if doc.task.ENCODING_SCHEME == 'cross_encoding':
                         model_input = self._tok_batch_encode([ctx], strings2=[choice], shift_inp_right=True)

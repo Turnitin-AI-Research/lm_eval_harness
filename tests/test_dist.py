@@ -1,13 +1,13 @@
-from typing import Optional
+from typing import Optional, Union
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import fire
 from main import main as run_eval
 
 
-def _test(limit: Optional[int] = 100):
+def _test(limit: int = 100, device: str = "7"):
     _args = [
-        "--device", "7",
+        "--device", device,
         "--output_dir", "lmeval_results_debug/",
         "--tasks", 'hellaswag_d',
         "--model", 'dist_sim',
