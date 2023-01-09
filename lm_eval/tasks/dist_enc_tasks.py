@@ -66,8 +66,8 @@ class DistEncTaskMixin:
     Mixin for Distributed Encoding Task.
     Refer to new_multiple_choice_task.py for software design context.
     """
-
-    def __init__(self, *args, encoding_scheme: str = 'concat_all_examples', task_type: Optional[str] = None, **kwargs) -> None:
+    # TODO: encoding_scheme default was mean. Need to retest with absent values
+    def __init__(self, *args, encoding_scheme: str = None, task_type: Optional[str] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.ENCODING_SCHEME: str = encoding_scheme  # passed in via config
         # Delimiter separating few-shot examples. Override this in subclass' constructor
@@ -399,7 +399,6 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         super().__init__(*args, **kwargs)
         self.EXAMPLE_DELIMITER: str = '\n\n'
         self.QA_DELIMITER = '\n'
-        self.SEGMENT_DELIMITER = None
         self.QUESTION_HINT = 'Question:'
         self.ANSWER_HINT = 'Answer:'
         self.HINT_QUESTION_DELIMITER = ' '
@@ -421,7 +420,7 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         # Extract all hints so that they may be optionally individually encoded without text
         out_doc['question_hint'] = self.QUESTION_HINT
         out_doc['answer_hint'] = self.ANSWER_HINT
-        # Segments (including hints) so that they may be individually encoded (e.g 'Question: <question text>')
+        # Question / Context segments (including hints) so that they may be individually encoded (e.g 'Question: <question text>')
         question = self.QUESTION_HINT + self.HINT_QUESTION_DELIMITER + out_doc['question']
         out_doc['segments'] = [question]
         out_doc['choices'] = doc['answers']
@@ -441,44 +440,45 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         }
 
 
-class DistEncTaskMixin2(DistEncTaskMixin):
-    """Specializtion of DistEncTaskMixin for cases where there are multiple contexts instead of multiple targets."""
+# class DistEncTaskMixin2(DistEncTaskMixin):
+#     """
+#     Specializtion of DistEncTaskMixin for cases where there are multiple contexts instead of multiple targets.
+#     This class is still under construction.
+#     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+#     def __init__(self, *args, **kwargs) -> None:
+#         super().__init__(*args, **kwargs)
 
-    def _make_contextlist(self, doc: SegmentedSample, fewshotex: List[SegmentedSample],
-                          description: Optional[SegmentedSample]) -> List[List[SegmentedSample]]:
-        """Return multiple context lists instead of one"""
-        description_list = [] if description is None else [description]
-        contexts = []
-        for ctx_choice in doc['ctx_choices']:
-            _doc = doc.copy()
-            _doc['segments'] = [ctx_choice]
-            context_list = description_list + [
-                self._make_fewshotex(example) for example in fewshotex] + [
-                self._make_fewshot_query(self._remove_label(_doc))]
+#     def _make_contextlist(self, doc: SegmentedSample, fewshotex: List[SegmentedSample],
+#                           description: Optional[SegmentedSample]) -> List[List[SegmentedSample]]:
+#         """Return multiple context lists instead of one"""
+#         description_list = [] if description is None else [description]
+#         contexts = []
+#         for ctx_choice in doc['ctx_choices']:
+#             _doc = doc.copy()
+#             _doc['segments'] = [ctx_choice]
+#             context_list = description_list + [
+#                 self._make_fewshotex(example) for example in fewshotex] + [
+#                 self._make_fewshot_query(self._remove_label(_doc))]
 
-            if self.ENCODING_SCHEME in ['concat_all_examples', 'merge_all_segments', 'cross_encoding']:
-                # Merge all samples into one
-                context_list = [self._merge_fewshotex(_doc, context_list)]
-            contexts.append(context_list)
-        return contexts
+#             if self.ENCODING_SCHEME in ['concat_all_examples', 'merge_all_segments', 'cross_encoding']:
+#                 # Merge all samples into one
+#                 context_list = [self._merge_fewshotex(_doc, context_list)]
+#             contexts.append(context_list)
+#         return contexts
 
 
-class Wsc273Dist(DistEncTaskMixin2, wsc273.WinogradSchemaChallenge273):
-    def __init__(self, *args, **kwargs) -> None:
-        # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
-        super().__init__(*args, **kwargs)
-        # self.SEGMENT_DELIMITER: str = '\n'
-        # self.ANSWER_DELIMITER: str = ' '
-        # self.EXAMPLE_DELIMITER: str = '\n\n'
-        self.verify_config()
+# class Wsc273Dist(DistEncTaskMixin2, wsc273.WinogradSchemaChallenge273):
+#     """This class is still under construction."""
+#     def __init__(self, *args, **kwargs) -> None:
+#         # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
+#         super().__init__(*args, **kwargs)
+#         self.verify_config()
 
-    def _process_doc(self, doc):
-        doc = SegmentedSample(super()._process_doc(doc), task=self)
-        doc['segments'] = [self.doc_to_text(doc)]
-        doc['choices'] = [self.partial_target(doc)]
-        doc['gold_indices'] = [0]
-        doc['ctx_choices'] = [self.partial_context(doc, option) for option in doc['options']]
-        doc['ctx_gold_indices'] = [doc['label']]
+#     def _process_doc(self, doc):
+#         doc = SegmentedSample(super()._process_doc(doc), task=self)
+#         doc['segments'] = [self.doc_to_text(doc)]
+#         doc['choices'] = [self.partial_target(doc)]
+#         doc['gold_indices'] = [0]
+#         doc['ctx_choices'] = [self.partial_context(doc, option) for option in doc['options']]
+#         doc['ctx_gold_indices'] = [doc['label']]

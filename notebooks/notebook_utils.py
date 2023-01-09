@@ -1,4 +1,5 @@
 """Helper functions for notebooks"""
+import math
 import os
 import typing
 import json
@@ -7,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import numpy as np
 
 
 def remove_header(segment):
@@ -106,7 +108,7 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
                     _task_metrics_sr = _no_nans.iloc[0]
                 else:
                     # Couldn't find metrics
-                    print(f'Did not find metrics: {_task_metrics_df.columns} for one group. Setting as NaN.')
+                    # print(f'Did not find metrics: {_task_metrics_df.columns} for one group. Setting as NaN.')
                     _task_metrics_sr = _task_metrics_df.iloc[0]
                 metric_values.append(_task_metrics_sr)
             # rows = [_df[task_metric_cols[task]].dropna().iloc[0] for task in tasks]
@@ -154,3 +156,29 @@ def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, rem
     fig.update_layout(layout_args)
 
     return fig
+
+
+def compare_metrics(df1, df2):
+    assert not set(df1.columns) - set(df2.columns)
+    assert not set(df2.columns) - set(df1.columns)
+    group_cols = list(set(df1.columns) - {'hellaswag:acc'})
+    df1 = df1.groupby(group_cols, dropna=False).first()
+    df2 = df2.groupby(group_cols, dropna=False).first()
+    index = (df1.index & df2.index)
+    new_better, old_better, num_equal = 0, 0, 0
+    old_better_by, new_better_by = [], []
+    for id in index:
+        id = pd.MultiIndex.from_tuples([id])
+        val1 = df1.loc[id]['hellaswag:acc'].iloc[0]
+        val2 = df2.loc[id]['hellaswag:acc'].iloc[0]
+        if math.isclose(val1, val2):
+            num_equal += 1
+        elif (val1 > val2):
+            old_better += 1
+            old_better_by.append((val1 - val2) * 100)
+        elif val2 > val1:
+            new_better += 1
+            new_better_by.append((val2 - val1) * 100)
+
+    print(f'new_better = {(new_better/len(index))*100:.2f}%, old_better = {(old_better/len(index))*100:.2f}%, equal = {(num_equal/len(index))*100:.2f}%')
+    print(f'new better by {np.mean(new_better_by):.3f}, old better by {np.mean(old_better_by):.3f} absolute % points')

@@ -1,14 +1,38 @@
 """Utilities for distributed encoding"""
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import re
+import os
 import logging
 from tqdm import tqdm
 import torch
 from torch import Tensor
-from lm_eval.tasks.dist_enc_tasks import SegmentedSample
 from transformers.activations import ACT2FN
+from lm_eval.tasks.dist_enc_tasks import SegmentedSample
 
-_LOGGER = logging.getLogger(__name__)
+
+def get_logger(logger_name: str, logger_level: Union[int, str, None] = None) -> logging.Logger:
+    """Create logger, formatter, and console handler and return logger."""
+    logger = logging.Logger(logger_name)  # using getLogger instead results in duplicate logs
+    logger_level = os.environ.get('LOGLEVEL', 'WARNING').upper() if logger_level is None else logger_level
+    logger.setLevel(logger_level)
+    if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logger_level)
+        formatter = logging.Formatter('%(levelname)s: %(asctime)s: %(name)s: %(message)s')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+    return logger
+
+
+def str_to_bool(arg: str) -> bool:
+    if arg is None:
+        return False
+    arg = arg.lower()
+    assert arg in ['true', 'false']
+    return arg == 'true'
+
+
+_LOGGER = get_logger(__name__)
 
 
 class DistEncSimMixin:
@@ -21,11 +45,12 @@ class DistEncSimMixin:
     def __init__(self,
                  *args,
                  WORD_AGG_SCHEME: Optional[str] = None,
-                 SEGMENT_AGG_SCHEME: Optional[str] = 'mean',
-                 EXAMPLE_AGG_SCHEME: Optional[str] = 'mean',
+                 SEGMENT_AGG_SCHEME: Optional[str] = None,  # TODO: was mean. need to retest with absent values
+                 EXAMPLE_AGG_SCHEME: Optional[str] = None,  # TODO: was mean. need to retest with absent values
                  SIMILARITY_FUNC: Optional[str] = None,
                  NORM: Optional[str] = None,
                  ENCODING_LAYER: Optional[str] = None,
+                 PARALLELIZE: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.WORD_AGG_SCHEME: str = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
@@ -34,17 +59,39 @@ class DistEncSimMixin:
         self.SIMILARITY_FUNC: str = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
         self.NORM: str = NORM if NORM != 'None' else None
         self.ENCODING_LAYER: str = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
-        self.act = ACT2FN[self.gpt2.config.activation_function]
+        self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
+        if self.PARALLELIZE:
+            assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
+            self.gpt2.parallelize()
+            self._device = 'cuda:0'
+        # dense_act_fn
+        if hasattr(self.gpt2.config, 'activation_function'):
+            self.act = ACT2FN[self.gpt2.config.activation_function].to(device=self.device)
+        else:  # T5
+            self.act = ACT2FN[self.gpt2.config.dense_act_fn].to(device=self.device)
+        self.model = self.gpt2
+        self.encoder = self.model.get_encoder() if self.is_enc_dec else self.model
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+    @property
+    def is_enc_dec(self) -> bool:
+        """Return True if this is an encoder-decoder model like T5."""
+        return hasattr(self.model, 'get_encoder')
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last', '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
-        assert self.SEGMENT_AGG_SCHEME in ['mean', None]  # Whether to aggregate segments within a sample and if so, how.
-        assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']  # Whether to aggregate segments across samples and if so, how.
+        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last',
+                                        '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
+        # Whether to aggregate segments within a sample and if so, how.
+        assert self.SEGMENT_AGG_SCHEME in ['mean', None]
+        # Whether to aggregate segments across samples and if so, how.
+        assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
         assert self.NORM in ['L2', 'layer', None]
         # Which transformer hidden layer to pick encodings from. None => top layer
         print(f'self.ENCODING_LAYER = {type(self.ENCODING_LAYER)}:{self.ENCODING_LAYER}')
-        assert (self.ENCODING_LAYER in ['middle', None, 'E']) or isinstance(self.ENCODING_LAYER, int) or re.fullmatch(r'\d+', self.ENCODING_LAYER)
+        assert (self.ENCODING_LAYER in ['middle', None, 'E']) or isinstance(
+            self.ENCODING_LAYER, int) or re.fullmatch(r'\d+', self.ENCODING_LAYER)
         if isinstance(self.ENCODING_LAYER, str) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
             self.ENCODING_LAYER = int(self.ENCODING_LAYER)
 
@@ -82,7 +129,8 @@ class DistEncSimMixin:
         return torch.matmul(attention_weights, M)  # (Sq, D)
 
     def tok_encode(self, string: str) -> List[int]:
-        return self.tokenizer.encode(string, add_special_tokens=False)
+        return self.tokenizer.encode(string, truncation=False, add_special_tokens=(self.is_enc_dec) )
+        # return self.tokenizer.encode(string, truncation=False, add_special_tokens=False)
 
     # def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, Tensor]:
     #     # WARNING: August 2022: cannot rely on return_length=True because returned lengths are incorrect
@@ -124,7 +172,7 @@ class DistEncSimMixin:
 
         batch_len = max(seq_lens)
         # pad
-        seqs = [seq + [0] * (batch_len - len(seq)) for seq in seqs]
+        seqs = [seq + [self.tokenizer.pad_token_id] * (batch_len - len(seq)) for seq in seqs]
 
         retdir = {
             'input_ids': torch.tensor(seqs, dtype=torch.long, device=self.device),  # (N,T)
@@ -165,6 +213,8 @@ class DistEncSimMixin:
         else:
             raise RuntimeError()
 
+        concept_seqs = concept_seqs.to(device=self.device)
+
         if self.WORD_AGG_SCHEME.startswith('relu+|'):
             concept_seqs = self.act(concept_seqs) + concept_seqs
         elif self.WORD_AGG_SCHEME.startswith('-relu+|'):
@@ -189,13 +239,14 @@ class DistEncSimMixin:
     def _embed_strings(self, strings: List[str]) -> Tensor:  # (#strings, hidden_size)
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
         if self.ENCODING_LAYER != 'E':
-            model_output = self.gpt2(input_ids=model_input['input_ids'],
-                                     attention_mask=model_input['attention_mask'],
-                                     output_hidden_states=True,
-                                     return_dict=True)
+            model_output = self.encoder(input_ids=model_input['input_ids'],
+                                        attention_mask=model_input['attention_mask'],
+                                        output_hidden_states=True,
+                                        return_dict=True)
+            # self._model.encoder(input_ids=input_ids, attention_mask=input_mask)['last_hidden_state']
         else:
             model_output = None
-            model_input['inputs_embeds'] = self.gpt2.get_input_embeddings()(model_input['input_ids'])
+            model_input['inputs_embeds'] = self.model.get_input_embeddings()(model_input['input_ids'])
         return self._reduce_word_sequences(model_output, model_input)  # (#strings, hidden_size)
 
     def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
@@ -244,7 +295,7 @@ class DistEncSimMixin:
         """
         # Eschewing batching in favor of simplicity for now
         results = []
-        self.gpt2.eval()
+        self.model.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 assert doc.task.ENCODING_SCHEME != 'cross_encoding', 'cross_encoding scheme is not support with this model_type'
@@ -313,7 +364,7 @@ class DistEncGenMixin(DistEncSimMixin):
         seqs, seq2s, seq_lens = [], [], []
         for i, string in enumerate(strings):
             tok_seq = torch.tensor(self.tok_encode(string), dtype=torch.long, device=self.device)  # (seq_len,)
-            tok_emb = self.gpt2.get_input_embeddings()(tok_seq)  # (seq_len, hidden_size)
+            tok_emb = self.model.get_input_embeddings()(tok_seq)  # (seq_len, hidden_size)
             assert 0 < len(tok_emb) < self.max_length
             seq2s.append(tok_seq)
             seq = torch.cat([context_embeddings, tok_emb])
@@ -327,7 +378,7 @@ class DistEncGenMixin(DistEncSimMixin):
 
         batch_len = max(seq_lens)
         # pad
-        pad_embedding = self.gpt2.get_input_embeddings()(torch.tensor(
+        pad_embedding = self.model.get_input_embeddings()(torch.tensor(
             [0], dtype=torch.long, device=self.device)).squeeze(0)
         seqs = [torch.cat([seq, pad_embedding.repeat(batch_len - len(seq), 1)]) if batch_len > len(seq) else seq
                 for seq in seqs]
@@ -352,10 +403,12 @@ class DistEncGenMixin(DistEncSimMixin):
             A list of results, [Tensor], one per request (doc)
             Tensor: A list of similarity scores of a request (doc), one per choice [score,]
         """
+        if self.is_enc_dec:
+            return self.distributed_encdec_generation(requests_args)
         # Eschewing batching in favor of simplicity for now
-        self.verify_config()
+        # self.verify_config()
         results = []
-        self.gpt2.eval()
+        self.model.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 logprobs: List[Tensor] = []
@@ -378,13 +431,13 @@ class DistEncGenMixin(DistEncSimMixin):
                         model_input = self._input_embed_words(context_embeddings, [choice], shift_inp_right=True)
                         input_ids, inputs_embeds = None, model_input['inputs_embeds']
 
-                    model_output = self.gpt2(input_ids=input_ids, inputs_embeds=inputs_embeds,
-                                             attention_mask=model_input['attention_mask'],
-                                             output_hidden_states=True,
-                                             return_dict=True)
+                    model_output = self.model(input_ids=input_ids, inputs_embeds=inputs_embeds,
+                                              attention_mask=model_input['attention_mask'],
+                                              output_hidden_states=True,
+                                              return_dict=True)
                     logprobs.append(
                         torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
-                    )  # (#choices, seq_len, vocab)
+                    )
                     seq2s.extend(model_input['seq2s'])
                     seq_lens.extend(model_input['seq_lens'])
 
@@ -393,6 +446,72 @@ class DistEncGenMixin(DistEncSimMixin):
                     seq_len = seq_lens[i].item()
                     lp_slice = logprobs[i][seq_len - len(choice_seq):seq_len]  # (choice_len, vocab)
                     is_em = (choice_seq == lp_slice.argmax(dim=-1)).all().item()
+                    is_exact_match.append(bool(is_em))
+                    choice_seq = choice_seq.unsqueeze(-1)
+                    choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
+                    score_list.append(choice_lprobs.sum())
+                results.append({'scores': torch.stack(score_list), 'is_exact_match': is_exact_match})
+
+        return results
+
+    def distributed_encdec_generation(self, requests_args) -> List[Tensor]:
+        """Generate text by encoding context distributively.
+
+        :param requests_args: list
+            A list of pairs (context, doc)
+            context: List of context SegmentedSamples: Optional[description] + [few-shot samples] + [doc]
+            doc: The query doc SegmentedSample
+        :return:
+            A list of results, [Tensor], one per request (doc)
+            Tensor: A list of similarity scores of a request (doc), one per choice [score,]
+        """
+        # Eschewing batching in favor of simplicity for now
+        # self.verify_config()
+        results = []
+        self.model.eval()
+        with torch.no_grad():
+            for context, doc in tqdm(requests_args):
+                logprobs: List[Tensor] = []
+                seq2s: List[Tensor] = []
+                seq_lens: List[Tensor] = []
+                if doc.task.ENCODING_SCHEME == 'cross_encoding':
+                    assert len(context) == 1
+                    assert len(context[0]['segments']) == 1
+                    # TODO: If ctx == '' context_enc = [eot_token_id]. Line 193 in base.py
+                    ctx = context[0]['segments'][0]
+                    ctx_ids = self.tokenizer(ctx, return_tensors='pt', add_special_tokens=True).input_ids.to(device=self.device)
+                else:
+                    context_embeddings = self._embed_context(context)  # (seq_len, hidden_size)
+                # Run each choice separately to avoid OOM with large models
+                for choice in doc['choices']:
+                    labels = self.tokenizer(choice, return_tensors='pt', add_special_tokens=False).input_ids.to(device=self.device)
+                    if doc.task.ENCODING_SCHEME == 'cross_encoding':
+                        model_output = self.model(input_ids=ctx_ids,
+                                                  labels=labels,
+                                                  output_hidden_states=True,
+                                                  return_dict=True)
+                    else:
+                        # self._t5(encoder_outputs=(encoded_input,),
+                        #            attention_mask=attention_mask,
+                        #            labels=batch['labels'],
+                        #            decoder_attention_mask=batch['decoder_attention_mask'])
+                        model_output = self.model(encoder_outputs=(context_embeddings.unsqueeze(0),),
+                                                  labels=labels,
+                                                  output_hidden_states=True,
+                                                  return_dict=True)
+                    logprobs.append(
+                        torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
+                    )
+                    seq2s.append(labels.squeeze(0))
+                    seq_lens.append(labels.shape[-1])
+
+                score_list, is_exact_match = [], []
+                for i, choice_seq in enumerate(seq2s):
+                    # seq_len = seq_lens[i].item()
+                    lp_slice = logprobs[i]  # (choice_len, vocab)
+                    is_em = (choice_seq == lp_slice.argmax(dim=-1)).all().item()
+                    _LOGGER.debug(f"choice = {doc['choices'][i]}\n"
+                                  f"pred = {self.tokenizer.decode(lp_slice.argmax(dim=-1))}")
                     is_exact_match.append(bool(is_em))
                     choice_seq = choice_seq.unsqueeze(-1)
                     choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)

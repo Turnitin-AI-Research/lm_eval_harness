@@ -37,10 +37,15 @@ class HFLM(BaseLM):
             )
 
         # TODO: update this to be less of a hack once subfolder is fixed in HF
-        self.gpt2 = transformers.AutoModelForCausalLM.from_pretrained(
-            pretrained,
-            revision=revision + ("/" + subfolder if subfolder is not None else ""),
-        ).to(self.device)
+        try:
+            self.gpt2 = transformers.AutoModelForCausalLM.from_pretrained(
+                pretrained,
+                revision=revision + ("/" + subfolder if subfolder is not None else ""),
+            ).to(self.device)
+        except ValueError:
+            self.gpt2 = transformers.AutoModelForSeq2SeqLM.from_pretrained(
+                pretrained
+            ).to(self.device)
         self.gpt2.eval()
 
         # pretrained tokenizer for neo is broken for now so just hard-coding this to gpt2
@@ -147,6 +152,13 @@ class DistributedSim(DistEncSimMixin, HFLM):
         super().__init__(*args, **kwargs)
         self.verify_config()
 
+    @property
+    def max_length(self):
+        if self.is_enc_dec:
+            return 100000  # self.tokenizer.max_len_single_sentence
+        else:
+            return super().max_length
+
 
 class DistributedGen(DistEncGenMixin, HFLM):
     """Wrapper around HFLM that perfoms distributed encoding instead of cross-encoding"""
@@ -154,3 +166,10 @@ class DistributedGen(DistEncGenMixin, HFLM):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.verify_config()
+
+    @property
+    def max_length(self):
+        if self.is_enc_dec:
+            return 100000  # self.tokenizer.max_len_single_sentence
+        else:
+            return super().max_length
