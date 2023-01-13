@@ -5,11 +5,11 @@ from main import main
 
 
 results_dir = "lmeval_results_t5/"
-num_fewshots = [0]
+num_fewshots = [5]
 task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
 pretrained = ['google/flan-t5-xl']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_all_examples']
+encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
 word_agg_schemes = ['mean', 'last', 'relu|mean', '-relu|mean', 'relu|last', '-relu|last']
 segment_agg_schemes = [None, 'mean']

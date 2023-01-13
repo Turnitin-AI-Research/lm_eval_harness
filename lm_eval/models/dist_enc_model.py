@@ -51,6 +51,7 @@ class DistEncSimMixin:
                  NORM: Optional[str] = None,
                  ENCODING_LAYER: Optional[str] = None,
                  PARALLELIZE: Optional[str] = None,
+                 ADD_POS: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.WORD_AGG_SCHEME: str = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
@@ -60,6 +61,7 @@ class DistEncSimMixin:
         self.NORM: str = NORM if NORM != 'None' else None
         self.ENCODING_LAYER: str = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
         self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
+        self.ADD_POS: bool = str_to_bool(ADD_POS)
         if self.PARALLELIZE:
             assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
             self.gpt2.parallelize()
@@ -73,6 +75,9 @@ class DistEncSimMixin:
         self.encoder = self.model.get_encoder() if self.is_enc_dec else self.model
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
+        if self.ADD_POS:
+            assert hasattr(self.gpt2, 'transformer') and hasattr(self.gpt2.transformer, 'wpe'), f'Could not find position embedding matrix'
+            self.wpe = self.gpt2.transformer.wpe
 
     @property
     def is_enc_dec(self) -> bool:
@@ -129,7 +134,7 @@ class DistEncSimMixin:
         return torch.matmul(attention_weights, M)  # (Sq, D)
 
     def tok_encode(self, string: str) -> List[int]:
-        return self.tokenizer.encode(string, truncation=False, add_special_tokens=(self.is_enc_dec) )
+        return self.tokenizer.encode(string, truncation=False, add_special_tokens=(self.is_enc_dec))
         # return self.tokenizer.encode(string, truncation=False, add_special_tokens=False)
 
     # def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, Tensor]:
@@ -236,17 +241,29 @@ class DistEncSimMixin:
             raise NotImplementedError
         return self._normalize(aggregated_vectors)  # (batch, hidden_size)
 
+    # def _embed_strings(self, strings: List[str], pos: int, strings_are_sequential: bool) -> Tensor:  # (#strings, hidden_size)
     def _embed_strings(self, strings: List[str]) -> Tensor:  # (#strings, hidden_size)
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
+        model_input['inputs_embeds'] = self.model.get_input_embeddings()(model_input['input_ids'])
+        # if self.ADD_POS:
+        #     input_shape = model_input['inputs_ids']
+        #     pos_ids = torch.arange(input_shape[-1]).expand(input_shape)
+        #     if strings_are_sequential:
+        #         seq_pos = torch.cat(torch.new_zeros(1, dtype=model_input['seq_lens'].dtype), model_input['seq_lens']) + pos
+        #         pos_ids = pos_ids + seq_pos[:-1].unsqueeze(-1)
+        #     pos_ids = pos_ids * model_input['attention_mask'].unsqueeze(-1)
+        #     pos_e = self.wpe(pos_ids)
+        #     model_input['inputs_embeds'] = model_input['inputs_embeds'] + pos_e
         if self.ENCODING_LAYER != 'E':
-            model_output = self.encoder(input_ids=model_input['input_ids'],
+            model_output = self.encoder(#input_ids=model_input['input_ids'],
+                                        inputs_embeds=model_input['inputs_embeds'],
                                         attention_mask=model_input['attention_mask'],
                                         output_hidden_states=True,
                                         return_dict=True)
             # self._model.encoder(input_ids=input_ids, attention_mask=input_mask)['last_hidden_state']
         else:
             model_output = None
-            model_input['inputs_embeds'] = self.model.get_input_embeddings()(model_input['input_ids'])
+            # model_input['inputs_embeds'] = self.model.get_input_embeddings()(model_input['input_ids'])
         return self._reduce_word_sequences(model_output, model_input)  # (#strings, hidden_size)
 
     def _embed_sample(self, sample: SegmentedSample) -> SegmentedSample:
