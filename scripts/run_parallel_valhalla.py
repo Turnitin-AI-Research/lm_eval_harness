@@ -27,6 +27,12 @@ norms = ['layer']
 sim_funcs = ['dot_product']
 encoding_layers = ['middle', None, 23, 'E', 0]  # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
 
+if 0 in num_fewshots:
+    ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples', 'sentence_level_segmentation'}
+    ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES = {None}
+    assert ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES & set(example_agg_schemes)
+    assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
+
 @ray.remote(max_calls=1, num_gpus=1)
 # @ray.remote(max_calls=1, num_cpus=4)
 def run_eval(args):
@@ -38,6 +44,12 @@ os.makedirs(results_dir, exist_ok=True)
 futures = []
 for num_fewshot, (task, model), submodel, encoding_scheme, word_agg_scheme, segment_agg_scheme, example_agg_scheme, norm, sim_func, encoding_layer in itertools.product(
     num_fewshots, task_models, pretrained, encoding_schemes, word_agg_schemes, segment_agg_schemes, example_agg_schemes, norms, sim_funcs, encoding_layers):
+
+    if num_fewshot == 0:
+        if ((encoding_scheme not in ALLOWED_ZEROSHOT_ENCODING_SCHEMES)
+                or (example_agg_scheme not in ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES)):
+            continue
+
     _args = [
         "--device", "0",
         "--output_dir", results_dir,
