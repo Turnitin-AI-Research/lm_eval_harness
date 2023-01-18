@@ -5,7 +5,7 @@ import fire
 from main import main as run_eval
 
 
-def _test(limit: int = None, device: str = "7", model_parallel: bool = False):
+def _test(limit: int = 100, device: str = "7", model_parallel: bool = False):
     if model_parallel:
         device = 'cpu'
         print('Setting device to "cpu" for model-parallel mode')
@@ -19,7 +19,7 @@ def _test(limit: int = None, device: str = "7", model_parallel: bool = False):
         '--task_args', 'encoding_scheme=sentence_level_segmentation',  # merge_all_segments
         '--model_args', ('WORD_AGG_SCHEME=relu|mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B'
                          + ',ENCODING_LAYER=23'
-                         #  + f',PARALLELIZE={model_parallel}'
+                         + f',PARALLELIZE={model_parallel}'
                          #  + ',DECODING_SCHEME=steer_vec,STEER_VEC_INJ_LAYERS=10-12,STEER_VEC_INJ_POS=all'
                          )
     ]
