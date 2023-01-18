@@ -5,12 +5,12 @@ import fire
 from main import main as run_eval
 
 
-def _test(limit: int = 100, device: str = "7", model_parallel: bool = False):
+def _test(limit: int = 100, device: str = '6', model_parallel: bool = False):
     if model_parallel:
         device = 'cpu'
         print('Setting device to "cpu" for model-parallel mode')
     _args = [
-        "--device", device,
+        "--device", str(device),
         "--output_dir", "lmeval_results_debug/",
         "--tasks", 'hellaswag_d',
         "--model", 'dist_sim',

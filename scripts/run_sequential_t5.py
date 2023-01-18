@@ -6,22 +6,22 @@ from main import main
 
 results_dir = "lmeval_results_t5/"
 num_fewshots = [5]
-task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
+task_models = [('hellaswag_dg', 'dist_gen'), ('webqs_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
 pretrained = ['google/flan-t5-xl']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
+encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example']
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
-word_agg_schemes = ['mean', 'last', 'relu|mean', '-relu|mean', 'relu|last', '-relu|last']
+word_agg_schemes = ['-relu|mean', '-relu+|mean', 'mean', 'relu+|mean', 'relu|mean']
 segment_agg_schemes = [None, 'mean']
-example_agg_schemes = [None, 'soft_cluster', 'mean']
-norms = ['layer']
+example_agg_schemes = [None, 'mean']
+norms = ['layer', None]
 sim_funcs = ['dot_product']
 # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-encoding_layers = [None]
+encoding_layers = [0]
 parallelize = True
 
 if 0 in num_fewshots:
-    ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples', 'sentence_level_segmentation'}
+    ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'segment_each_example', 'sentence_level_segmentation'}
     ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES = {None}
     assert ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES & set(example_agg_schemes)
     assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
