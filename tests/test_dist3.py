@@ -56,6 +56,10 @@ def _test(limit: int = 100, device: str = "7", model_parallel: bool = False):
         # }
         # }
         expected = 0.3061
+    elif limit == 100:
+        expected = 0.24
+    elif limit == 1000:
+        expected = 0.287
     else:
         raise ValueError(f'Unsupported limit value {limit}')
 
