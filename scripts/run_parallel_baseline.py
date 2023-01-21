@@ -19,10 +19,11 @@ num_fewshots = [0, 5]
 # ('hellaswag_d', 'dist_sim'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
 task_models = [('webqs_dg', 'dist_gen'), ('hellaswag_dg', 'dist_gen')]  # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
 encoding_scheme = 'cross_encoding'
-pretrained = ['EleutherAI/gpt-neo-1.3B']
+pretrained = ['google/flan-t5-xl']
+parallelize = True
 
 
-@ray.remote(max_calls=1, num_gpus=1)
+@ray.remote(max_calls=1, num_gpus=2)
 # @ray.remote(max_calls=1, num_cpus=4)
 def run_eval(args):
     os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
@@ -34,7 +35,7 @@ futures = []
 for num_fewshot, (task, model), submodel in itertools.product(
         num_fewshots, task_models, pretrained):
     _args = [
-        "--device", "0",
+        "--device", "cpu" if parallelize else "0",
         "--output_dir", results_dir,
         # "--limit", "5",
         "--tasks", task,
@@ -43,7 +44,7 @@ for num_fewshot, (task, model), submodel in itertools.product(
         '--num_fewshot', f'{num_fewshot}'
     ]
     if submodel is not None:
-        _args.extend(['--model_args', f'pretrained={submodel}'])
+        _args.extend(['--model_args', f'pretrained={submodel},PARALLELIZE={parallelize}'])
     if encoding_scheme:
         _args.extend(['--task_args', f'encoding_scheme={encoding_scheme}'])
     future = run_eval.remote(_args)
