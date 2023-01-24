@@ -24,7 +24,7 @@ def get_logger(logger_name: str, logger_level: Union[int, str, None] = None) -> 
     return logger
 
 
-def str_to_bool(arg: str) -> bool:
+def str_to_bool(arg: Optional[str]) -> bool:
     """Convert parameter string to bool"""
     if arg is None:
         return False
@@ -51,22 +51,22 @@ class DistEncSimMixin:
                  SIMILARITY_FUNC: Optional[str] = None,
                  NORM: Optional[str] = None,
                  ENCODING_LAYER: Optional[str] = None,
-                 PARALLELIZE: Optional[str] = None,
+                #  PARALLELIZE: Optional[str] = None,
                  ADD_POS: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.WORD_AGG_SCHEME: str = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
-        self.SEGMENT_AGG_SCHEME: str = SEGMENT_AGG_SCHEME if SEGMENT_AGG_SCHEME != 'None' else None
-        self.EXAMPLE_AGG_SCHEME: str = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
-        self.SIMILARITY_FUNC: str = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
-        self.NORM: str = NORM if NORM != 'None' else None
-        self.ENCODING_LAYER: str = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
-        self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
+        self.WORD_AGG_SCHEME: Optional[str] = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
+        self.SEGMENT_AGG_SCHEME: Optional[str] = SEGMENT_AGG_SCHEME if SEGMENT_AGG_SCHEME != 'None' else None
+        self.EXAMPLE_AGG_SCHEME: Optional[str] = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
+        self.SIMILARITY_FUNC: Optional[str] = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
+        self.NORM: Optional[str] = NORM if NORM != 'None' else None
+        self.ENCODING_LAYER: Optional[str] = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
+        # self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
         self.ADD_POS: bool = str_to_bool(ADD_POS)
-        if self.PARALLELIZE:
-            assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
-            self.gpt2.parallelize()
-            self._device = 'cuda:0'
+        # if self.PARALLELIZE:
+        #     assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
+        #     self.gpt2.parallelize()
+        #     self._device = 'cuda:0'
         # dense_act_fn
         if hasattr(self.gpt2.config, 'activation_function'):
             self.act = ACT2FN[self.gpt2.config.activation_function].to(device=self.device)
@@ -87,8 +87,10 @@ class DistEncSimMixin:
         return hasattr(self.model, 'get_encoder')
 
     def verify_config(self):
-        assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last',
-                                        '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
+        if self.WORD_AGG_SCHEME is not None:
+            assert re.fullmatch(r'([-]?relu[+]?\|)?(mean|last|concat)', self.WORD_AGG_SCHEME)
+        # assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last',
+        #                                 '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
         # Whether to aggregate segments within a sample and if so, how.
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         # Whether to aggregate segments across samples and if so, how.
@@ -201,6 +203,7 @@ class DistEncSimMixin:
         :return: Tensor, shape = (batch_size, hidden_size)
             Each sequence in the batch reduced to an embedding of size hidden_size
         """
+        assert self.WORD_AGG_SCHEME is not None
         # encoding_layer = len(model_output['hidden_states']) // 2 if self.ENCODING_LAYER == 'middle' else -1
         encoding_layer = None
         if isinstance(self.ENCODING_LAYER, int):
@@ -233,7 +236,12 @@ class DistEncSimMixin:
         elif 'relu' in self.WORD_AGG_SCHEME:
             raise ValueError(f'Unsupported WORD_AGG_SCHEME: {self.WORD_AGG_SCHEME}')
 
-        if self.WORD_AGG_SCHEME.endswith('last'):
+        if self.WORD_AGG_SCHEME.endswith('concat'):
+            # assert self.task.TASK_TYPE == 'gen'
+            batch_size = concept_seqs.shape[0]
+            seq_lens = model_input['seq_lens']
+            aggregated_vectors = torch.stack([vector for row, seq_len in enumerate(seq_lens) for vector in concept_seqs[row, :seq_len]])
+        elif self.WORD_AGG_SCHEME.endswith('last'):
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
         elif self.WORD_AGG_SCHEME.endswith('mean'):
@@ -334,6 +342,7 @@ class DistEncSimMixin:
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 assert doc.task.ENCODING_SCHEME != 'cross_encoding', 'cross_encoding scheme is not support with this model_type'
+                assert self.WORD_AGG_SCHEME is not None and 'concat' not in self.WORD_AGG_SCHEME
                 context_embeddings, pos = self._embed_context(context)  # (#chunks, hidden_size)
                 doc = doc.copy()
                 del doc['segments']

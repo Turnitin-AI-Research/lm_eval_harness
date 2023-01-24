@@ -1,9 +1,17 @@
-from optparse import Option
 from typing import List, Optional
 import transformers
 import torch
 from lm_eval.base import BaseLM
 from lm_eval.models.dist_enc_model import DistEncSimMixin, DistEncGenMixin
+
+
+def str_to_bool(arg: Optional[str]) -> bool:
+    """Convert parameter string to bool"""
+    if arg is None:
+        return False
+    arg = arg.lower()
+    assert arg in ['true', 'false']
+    return arg == 'true'
 
 
 class HFLM(BaseLM):
@@ -15,6 +23,7 @@ class HFLM(BaseLM):
         subfolder=None,
         tokenizer=None,
         batch_size=1,
+        PARALLELIZE: Optional[str] = None
     ):
         super().__init__()
 
@@ -22,6 +31,7 @@ class HFLM(BaseLM):
         assert isinstance(pretrained, str)
         assert isinstance(batch_size, int)
 
+        self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
         if device:
             if device not in ["cuda", "cpu"]:
                 device = int(device)
@@ -35,6 +45,10 @@ class HFLM(BaseLM):
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )
+        if self.PARALLELIZE:
+            assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
+            # self.gpt2.parallelize()
+            # self._device = 'cuda:0'
 
         # TODO: update this to be less of a hack once subfolder is fixed in HF
         try:
@@ -47,6 +61,9 @@ class HFLM(BaseLM):
                 pretrained
             ).to(self.device)
         self.gpt2.eval()
+        if self.PARALLELIZE:
+            self.gpt2.parallelize()
+            self._device = 'cuda:0'
 
         # pretrained tokenizer for neo is broken for now so just hard-coding this to gpt2
         if subfolder is not None:
@@ -100,6 +117,7 @@ class HFLM(BaseLM):
     def max_length(self):
         try:
             return self.gpt2.config.n_ctx
+            
         except AttributeError:
             # gptneoconfig doesn't have n_ctx apparently
             return self.gpt2.config.max_position_embeddings

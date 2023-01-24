@@ -1,3 +1,4 @@
 {
-  "files.trimFinalNewlines": true
+  "files.trimFinalNewlines": true,
+  "python.analysis.typeCheckingMode": "basic"
 }
