@@ -14,20 +14,26 @@ import ray
 # ray cluster that was started in another environment.
 ray.init(address='local')
 
-results_dir = "lmeval_results_sim_all/"
-num_fewshots = [0, 5]
+results_dir = "lmeval_results_sim_latest/"
+num_fewshots = [0]
 task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
 pretrained = ['EleutherAI/gpt-neo-1.3B']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-encoding_schemes = ['sentence_level_segmentation']
+encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
-word_agg_schemes = ['relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean', 'mean', '-relu|last', 'relu+|last', 'relu|last', '-relu+|last' 'last']  # ['-relu+|mean', '-relu+|last', '-relu|last']
+word_agg_schemes = ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
 segment_agg_schemes = [None]
 example_agg_schemes = [None, 'mean', 'soft_cluster']
 norms = ['layer']
 sim_funcs = ['dot_product']
 # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-encoding_layers = ['E', 0, 6, 'middle', 18, 23, None]
+encoding_layers = [23, None]  # , 'E', 0, 'middle']
+if 0 in num_fewshots:
+    ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples', 'segment_each_example', 'sentence_level_segmentation'}
+    ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES = {None}
+    assert ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES & set(example_agg_schemes)
+    assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
+
 
 @ray.remote(max_calls=1, num_gpus=1)
 # @ray.remote(max_calls=1, num_cpus=4)
@@ -40,6 +46,12 @@ os.makedirs(results_dir, exist_ok=True)
 futures = []
 for num_fewshot, (task, model), submodel, encoding_scheme, word_agg_scheme, segment_agg_scheme, example_agg_scheme, norm, sim_func, encoding_layer in itertools.product(
     num_fewshots, task_models, pretrained, encoding_schemes, word_agg_schemes, segment_agg_schemes, example_agg_schemes, norms, sim_funcs, encoding_layers):
+
+    if num_fewshot == 0:
+        if ((encoding_scheme not in ALLOWED_ZEROSHOT_ENCODING_SCHEMES)
+                or (example_agg_scheme not in ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES)):
+            continue
+
     _args = [
         "--device", "0",
         "--output_dir", results_dir,

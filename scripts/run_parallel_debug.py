@@ -17,17 +17,17 @@ ray.init(address='local')
 results_dir = "lmeval_results_debug/"
 num_fewshots = [0, 5]
 # [('hellaswag_dg', 'dist_gen'), ('hellaswag_d', 'dist_sim'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
-task_models = [('webqs_dg', 'dist_gen')]
+task_models = [('hellaswag_d', 'dist_sim')]
 pretrained = ['EleutherAI/gpt-neo-1.3B']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-encoding_schemes = ['cross_encoding']
+encoding_schemes = ['concat_all_examples']
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
-word_agg_schemes = [None]
+word_agg_schemes = ['mean', 'last', 'relu|mean', '-relu|last', 'relu|last']
 segment_agg_schemes = [None]
 example_agg_schemes = [None]  # [None, 'mean', 'soft_cluster']
-norms = [None]
-sim_funcs = [None]
-encoding_layers = [None]  # ['middle', None, 23, 'E', 0]  # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+norms = ['layer']
+sim_funcs = ['dot_product']
+encoding_layers = ['middle', None, 23, 'E', 0]  # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
 
 @ray.remote(max_calls=1, num_gpus=1)
 # @ray.remote(max_calls=1, num_cpus=4)

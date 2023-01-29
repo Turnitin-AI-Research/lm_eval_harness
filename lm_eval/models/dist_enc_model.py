@@ -55,14 +55,16 @@ class DistEncSimMixin:
                  ADD_POS: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.max_length: int
+        self.device: torch.device
         self.WORD_AGG_SCHEME: Optional[str] = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
         self.SEGMENT_AGG_SCHEME: Optional[str] = SEGMENT_AGG_SCHEME if SEGMENT_AGG_SCHEME != 'None' else None
         self.EXAMPLE_AGG_SCHEME: Optional[str] = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
         self.SIMILARITY_FUNC: Optional[str] = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
         self.NORM: Optional[str] = NORM if NORM != 'None' else None
         self.ENCODING_LAYER: Optional[str] = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
-        # self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
         self.ADD_POS: bool = str_to_bool(ADD_POS)
+        # self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
         # if self.PARALLELIZE:
         #     assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
         #     self.gpt2.parallelize()
@@ -80,6 +82,10 @@ class DistEncSimMixin:
             assert not self.is_enc_dec  # T5 uses relative pos-encoding, therefore ADD_POS does not apply.
             assert hasattr(self.gpt2, 'transformer') and hasattr(self.gpt2.transformer, 'wpe'), 'Could not find position embedding matrix'
             self.wpe = self.gpt2.transformer.wpe
+        if self.WORD_AGG_SCHEME is not None and 'w1mean' in self.WORD_AGG_SCHEME:
+            self.agg_weights = torch.arange(1, self.max_length + 1, device=self.device).unsqueeze(0)  # (1, max_len)
+        else:
+            self.agg_weights = None
 
     @property
     def is_enc_dec(self) -> bool:
@@ -88,9 +94,7 @@ class DistEncSimMixin:
 
     def verify_config(self):
         if self.WORD_AGG_SCHEME is not None:
-            assert re.fullmatch(r'([-]?relu[+]?\|)?(mean|last|concat)', self.WORD_AGG_SCHEME)
-        # assert self.WORD_AGG_SCHEME in [None, 'last', 'relu|last', '-relu|last', 'relu+|last',
-        #                                 '-relu+|last', 'mean', 'relu|mean', '-relu|mean', 'relu+|mean', '-relu+|mean']
+            assert re.fullmatch(r'([-]?relu[+]?\|)?((w1)?mean|last|concat)', self.WORD_AGG_SCHEME)
         # Whether to aggregate segments within a sample and if so, how.
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         # Whether to aggregate segments across samples and if so, how.
@@ -244,6 +248,10 @@ class DistEncSimMixin:
         elif self.WORD_AGG_SCHEME.endswith('last'):
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
+        elif self.WORD_AGG_SCHEME.endswith('w1mean'):
+            padded_len = model_input['attention_mask'].shape[1]
+            agg_weights = (self.agg_weights[0, :padded_len] * model_input['attention_mask']).unsqueeze(-1)
+            aggregated_vectors = ((concept_seqs * agg_weights).sum(dim=1) / agg_weights.sum(dim=1))
         elif self.WORD_AGG_SCHEME.endswith('mean'):
             aggregated_vectors = ((concept_seqs * model_input['attention_mask'].unsqueeze(-1)).sum(dim=1)
                                   / model_input['seq_lens'].unsqueeze(-1))
@@ -367,11 +375,16 @@ class DistEncSimMixin:
 
 
 class DistEncGenMixin(DistEncSimMixin):
-    # WORD_AGG_SCHEME: Optional[str] = None
-    # SEGMENT_AGG_SCHEME: Optional[str] = None
-    # EXAMPLE_AGG_SCHEME: Optional[str] = None
-    # SIMILARITY_FUNC: Optional[str] = None
-    # NORM: Optional[str] = None
+    # class shortcut_model(torch.nn.Module):
+    #     # model_output = self.model(input_ids=input_ids, inputs_embeds=inputs_embeds,
+    #     #                             attention_mask=model_input['attention_mask'],
+    #     #                             output_hidden_states=True,
+    #     #                             return_dict=True)
+    #     # logprobs.append(
+    #     #     torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
+    #     # )
+    #     def __init__(self) -> None:
+    #         super().__init__()
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)

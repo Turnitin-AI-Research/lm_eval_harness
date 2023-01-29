@@ -154,7 +154,7 @@ def _test(limit: int = 100, device: str = "7", model_parallel: bool = False):
         # }
         expected = 0.3
 
-    assert results['results']['hellaswag_d']['acc'] == expected, f"Test Failed: expected={expected}, got={results['results']['hellaswag_d']['acc']}"
+    assert results['results']['hellaswag_dg']['acc'] == expected, f"Test Failed: expected={expected}, got={results['results']['hellaswag_dg']['acc']}"
     print('Test Passed')
 
 
