@@ -434,7 +434,7 @@ class DistEncGenMixin(DistEncSimMixin):
         batch_len = max(seq_lens)
         # pad
         pad_embedding = self.model.get_input_embeddings()(torch.tensor(
-            [0], dtype=torch.long, device=self.device)).squeeze(0)
+            [self.tokenizer.pad_token_id], dtype=torch.long, device=self.device)).squeeze(0)
         seqs = [torch.cat([seq, pad_embedding.repeat(batch_len - len(seq), 1)]) if batch_len > len(seq) else seq
                 for seq in seqs]
 

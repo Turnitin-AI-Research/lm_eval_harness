@@ -14,33 +14,36 @@ import ray
 # ray cluster that was started in another environment.
 ray.init(address='local')
 
-results_dir = "lmeval_results_sim_latest/"
+results_dir = "lmeval_results_t5/"
 num_fewshots = [0]
-task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-pretrained = ['EleutherAI/gpt-neo-1.3B']
+task_models = [('hellaswag_dg', 'dist_gen'), ('webqs_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
+pretrained = ['google/flan-t5-xl']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
+encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example']
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
-word_agg_schemes = ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
-segment_agg_schemes = [None]
-example_agg_schemes = [None, 'mean', 'soft_cluster']
-norms = ['layer']
-sim_funcs = ['dot_product', 'cosine_sim']
+word_agg_schemes = ['-relu|mean', '-relu+|mean', 'mean', 'relu+|mean', 'relu|mean']
+segment_agg_schemes = [None, 'mean']
+example_agg_schemes = [None, 'mean']
+norms = ['layer', None]
+sim_funcs = [None]  # ['dot_product']
 # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-encoding_layers = [23, None]  # , 'E', 0, 'middle']
+encoding_layers = [None]
+parallelize = True
+
 if 0 in num_fewshots:
-    ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples', 'segment_each_example', 'sentence_level_segmentation'}
+    ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'segment_each_example', 'sentence_level_segmentation'}
     ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES = {None}
     assert ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES & set(example_agg_schemes)
     assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
 
 
-@ray.remote(max_calls=1, num_gpus=1)
+@ray.remote(max_calls=1, num_gpus=2)
 # @ray.remote(max_calls=1, num_cpus=4)
 def run_eval(args):
     os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
     from main import main
     return main(*args)
+
 
 os.makedirs(results_dir, exist_ok=True)
 futures = []
@@ -53,7 +56,7 @@ for num_fewshot, (task, model), submodel, encoding_scheme, word_agg_scheme, segm
             continue
 
     _args = [
-        "--device", "0",
+        "--device", "cpu",
         "--output_dir", results_dir,
         # "--limit", "5",
         "--tasks", task,
@@ -62,7 +65,8 @@ for num_fewshot, (task, model), submodel, encoding_scheme, word_agg_scheme, segm
         '--num_fewshot', f'{num_fewshot}',
         '--task_args', f'encoding_scheme={encoding_scheme}'
     ]
-    model_args = f'WORD_AGG_SCHEME={word_agg_scheme},EXAMPLE_AGG_SCHEME={example_agg_scheme},SEGMENT_AGG_SCHEME={segment_agg_scheme},NORM={norm},SIMILARITY_FUNC={sim_func},ENCODING_LAYER={encoding_layer}'
+    model_args = (f'WORD_AGG_SCHEME={word_agg_scheme},EXAMPLE_AGG_SCHEME={example_agg_scheme},SEGMENT_AGG_SCHEME={segment_agg_scheme}' +
+                  f',NORM={norm},SIMILARITY_FUNC={sim_func},ENCODING_LAYER={encoding_layer},PARALLELIZE={parallelize}')
     if submodel is not None:
         model_args = model_args + f',pretrained={submodel}'
     _args.extend(['--model_args', model_args])

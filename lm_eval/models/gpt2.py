@@ -87,6 +87,8 @@ class HFLM(BaseLM):
                 transformers.T5TokenizerFast,
             ),
         ), "this tokenizer has not been checked for compatibility yet!"
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         self.vocab_size = self.tokenizer.vocab_size
 
@@ -117,7 +119,7 @@ class HFLM(BaseLM):
     def max_length(self):
         try:
             return self.gpt2.config.n_ctx
-            
+
         except AttributeError:
             # gptneoconfig doesn't have n_ctx apparently
             return self.gpt2.config.max_position_embeddings
