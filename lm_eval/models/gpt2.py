@@ -36,7 +36,10 @@ class HFLM(BaseLM):
             if device not in ["cuda", "cpu"]:
                 device = int(device)
             self._device = torch.device(device)
-            print(f"Using device '{device}'")
+            if not self.PARALLELIZE:
+                print(f"Using device '{device}'")
+            else:
+                print("setting device_map='auto'")
         else:
             print("Device not specified")
             print(f"Cuda Available? {torch.cuda.is_available()}")
@@ -47,23 +50,24 @@ class HFLM(BaseLM):
             )
         if self.PARALLELIZE:
             assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
-            # self.gpt2.parallelize()
-            # self._device = 'cuda:0'
 
         # TODO: update this to be less of a hack once subfolder is fixed in HF
         try:
             self.gpt2 = transformers.AutoModelForCausalLM.from_pretrained(
                 pretrained,
                 revision=revision + ("/" + subfolder if subfolder is not None else ""),
-            ).to(self.device)
+                device_map='auto' if self.PARALLELIZE else None
+            )
         except ValueError:
             self.gpt2 = transformers.AutoModelForSeq2SeqLM.from_pretrained(
-                pretrained
-            ).to(self.device)
-        self.gpt2.eval()
+                pretrained,
+                device_map='auto' if self.PARALLELIZE else None
+            )
         if self.PARALLELIZE:
-            self.gpt2.parallelize()
-            self._device = 'cuda:0'
+            self._device = 'cpu'
+        else:
+            self.gpt2 = self.gpt2.to(self.device)
+        self.gpt2.eval()
 
         # pretrained tokenizer for neo is broken for now so just hard-coding this to gpt2
         if subfolder is not None:
@@ -85,6 +89,7 @@ class HFLM(BaseLM):
                 transformers.GPT2TokenizerFast,
                 transformers.T5Tokenizer,
                 transformers.T5TokenizerFast,
+                transformers.BloomTokenizerFast
             ),
         ), "this tokenizer has not been checked for compatibility yet!"
         if self.tokenizer.pad_token is None:
@@ -176,6 +181,8 @@ class DistributedSim(DistEncSimMixin, HFLM):
     def max_length(self):
         if self.is_enc_dec:
             return 100000  # self.tokenizer.max_len_single_sentence
+        elif isinstance(self.gpt2, transformers.BloomForCausalLM):
+            return self.tokenizer.model_max_length
         else:
             return super().max_length
 
@@ -191,5 +198,7 @@ class DistributedGen(DistEncGenMixin, HFLM):
     def max_length(self):
         if self.is_enc_dec:
             return 100000  # self.tokenizer.max_len_single_sentence
+        elif isinstance(self.gpt2, transformers.BloomForCausalLM):
+            return self.tokenizer.model_max_length
         else:
             return super().max_length

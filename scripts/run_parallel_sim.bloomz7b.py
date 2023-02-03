@@ -35,7 +35,7 @@ if 0 in num_fewshots:
     assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
 
 
-@ray.remote(max_calls=1, num_gpus=1)
+@ray.remote(max_calls=1, num_gpus=8)
 # @ray.remote(max_calls=1, num_cpus=4)
 def run_eval(args):
     os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'

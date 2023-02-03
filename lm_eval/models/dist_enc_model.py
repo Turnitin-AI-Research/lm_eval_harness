@@ -6,6 +6,7 @@ import logging
 from tqdm import tqdm
 import torch
 from torch import Tensor
+import transformers
 from transformers.activations import ACT2FN
 from lm_eval.tasks.dist_enc_tasks import SegmentedSample
 
@@ -57,6 +58,8 @@ class DistEncSimMixin:
         super().__init__(*args, **kwargs)
         self.max_length: int
         self.device: torch.device
+        self.gpt2: transformers.PreTrainedModel
+        self.tokenizer: transformers.PreTrainedTokenizer
         self.WORD_AGG_SCHEME: Optional[str] = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
         self.SEGMENT_AGG_SCHEME: Optional[str] = SEGMENT_AGG_SCHEME if SEGMENT_AGG_SCHEME != 'None' else None
         self.EXAMPLE_AGG_SCHEME: Optional[str] = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
@@ -72,8 +75,13 @@ class DistEncSimMixin:
         # dense_act_fn
         if hasattr(self.gpt2.config, 'activation_function'):
             self.act = ACT2FN[self.gpt2.config.activation_function].to(device=self.device)
-        else:  # T5
+        elif isinstance(self.gpt2, transformers.T5PreTrainedModel):  # T5
             self.act = ACT2FN[self.gpt2.config.dense_act_fn].to(device=self.device)
+        elif isinstance(self.gpt2, transformers.BloomForCausalLM):
+            self.act = self.gpt2.transformer.h[0].mlp.gelu_impl
+        else:
+            raise NotImplementedError(f"Don't know how to extract relu activation for model tuype {type(self.gpt2)}")
+
         self.model = self.gpt2
         self.encoder = self.model.get_encoder() if self.is_enc_dec else self.model
         if self.tokenizer.pad_token is None:
