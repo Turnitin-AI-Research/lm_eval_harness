@@ -17,13 +17,13 @@ ray.init(address='local')
 results_dir = "lmeval_results_baseline/"
 num_fewshots = [0, 5]
 # ('hellaswag_d', 'dist_sim'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
-task_models = [('webqs_dg', 'dist_gen'), ('hellaswag_dg', 'dist_gen')]  # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
+task_models = [('hellaswag_dg', 'dist_gen')]  # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
 encoding_scheme = 'cross_encoding'
-pretrained = ['google/flan-t5-xl']
+pretrained = ['bigscience/bloomz-7b1']
 parallelize = True
 
 
-@ray.remote(max_calls=1, num_gpus=2)
+@ray.remote(max_calls=1, num_gpus=8)
 # @ray.remote(max_calls=1, num_cpus=4)
 def run_eval(args):
     os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'

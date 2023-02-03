@@ -14,10 +14,10 @@ import ray
 # ray cluster that was started in another environment.
 ray.init(address='local')
 
-results_dir = "lmeval_results_sim_latest/"
+results_dir = "lmeval_results_sim_bloomz71b/"
 num_fewshots = [5]
 task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-pretrained = ['EleutherAI/gpt-neo-1.3B']
+pretrained = ['bigscience/bloomz-7b1']
 # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
 encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
 # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
