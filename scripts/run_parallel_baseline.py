@@ -19,7 +19,7 @@ num_fewshots = [0, 5]
 # ('hellaswag_d', 'dist_sim'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
 task_models = [('hellaswag_dg', 'dist_gen')]  # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
 encoding_scheme = 'cross_encoding'
-pretrained = ['EleutherAI/gpt-neo-1.3B']  # EleutherAI/gpt-neo-1.3B, bigscience/bloomz-7b1
+pretrained = ['bigscience/bloomz-7b1']  # EleutherAI/gpt-neo-1.3B, bigscience/bloomz-7b1
 parallelize = True
 
 
