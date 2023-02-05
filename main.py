@@ -3,6 +3,7 @@ import argparse
 import os
 import json
 import logging
+from pathlib import Path
 import fnmatch
 import hashlib
 
@@ -66,7 +67,7 @@ def results_fpath(*args) -> typing.Optional[str]:
     else:
         task_names = pattern_match(args.tasks.split(","), tasks.ALL_TASKS)
     if args.output_path:
-        fpath = args.output_path
+        fpath = str(Path(args.output_path).resolve())
     elif args.output_dir:
         model_args = args.model_args.replace("/", ":")
         fname = (f"model={args.model}"
@@ -75,6 +76,7 @@ def results_fpath(*args) -> typing.Optional[str]:
                  f"|num_fewshot={args.num_fewshot}|limit={args.limit}")
         fname = hashlib.shake_128(bytes(fname, encoding='utf-8')).hexdigest(20)
         fpath = f"{args.output_dir}/{fname}.json"
+        fpath = str(Path(fpath).resolve())
     else:
         fpath = None
     return fpath

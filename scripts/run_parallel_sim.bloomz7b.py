@@ -24,13 +24,13 @@ def run(overwrite_results):
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
-    word_agg_schemes = ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
+    word_agg_schemes = ['mean', 'w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
     segment_agg_schemes = [None]
     example_agg_schemes = [None, 'mean', 'soft_cluster']
     norms = ['layer']
     sim_funcs = ['dot_product', 'cosine_sim']
     # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-    encoding_layers = ['-1', None, 'E', 0]  # , 'E', 0, 'middle']
+    encoding_layers = ['-2', None, 'middle', 'E', 0]  # , 'E', 0, 'middle']
     parallelize = True
 
     if 0 in num_fewshots:
@@ -73,9 +73,10 @@ def run(overwrite_results):
         _args.extend(['--model_args', model_args])
 
         results_path = results_fpath(*_args)
-        if results_path is not None and (not overwrite_results) and os.path.exists(results_path):
-            print(f'Skipping config:\n{_args}')
+        if (results_path is not None) and (not overwrite_results) and os.path.exists(results_path):
+            print(f'Skipping config:\n{_args}\nFound result at {results_path}')
         else:
+            print(f'Posting job:\n{_args}\nresults_path = {results_path}')
             future = run_eval.remote(_args)
             futures.append(future)
 

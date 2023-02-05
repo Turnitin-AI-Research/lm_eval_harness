@@ -70,7 +70,7 @@ def run(overwrite_results: bool = False):
         _args.extend(['--model_args', model_args])
 
         results_path = results_fpath(*_args)
-        if results_path is not None and (not overwrite_results) and os.path.exists(results_path):
+        if (results_path is not None) and (not overwrite_results) and os.path.exists(results_path):
             print(f'Skipping config:\n{_args}')
         else:
             future = run_eval.remote(_args)
