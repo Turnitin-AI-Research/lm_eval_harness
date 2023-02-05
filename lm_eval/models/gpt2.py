@@ -30,7 +30,6 @@ class HFLM(BaseLM):
         assert isinstance(device, str)
         assert isinstance(pretrained, str)
         assert isinstance(batch_size, int)
-        cache_dir = None
 
         self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
         if device:
@@ -57,14 +56,12 @@ class HFLM(BaseLM):
             self.gpt2 = transformers.AutoModelForCausalLM.from_pretrained(
                 pretrained,
                 revision=revision + ("/" + subfolder if subfolder is not None else ""),
-                device_map='auto' if self.PARALLELIZE else None,
-                cache_dir=cache_dir
+                device_map='auto' if self.PARALLELIZE else None
             )
         except ValueError:
             self.gpt2 = transformers.AutoModelForSeq2SeqLM.from_pretrained(
                 pretrained,
-                device_map='auto' if self.PARALLELIZE else None,
-                cache_dir=cache_dir
+                device_map='auto' if self.PARALLELIZE else None
             )
         if self.PARALLELIZE:
             self._device = 'cpu'
@@ -78,13 +75,11 @@ class HFLM(BaseLM):
                 pretrained if tokenizer is None else tokenizer,
                 revision=revision,
                 subfolder=subfolder,
-                cache_dir=cache_dir
             )
         else:
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                 pretrained if tokenizer is None else tokenizer,
-                revision=revision,
-                cache_dir=cache_dir
+                revision=revision
             )
 
         assert isinstance(
@@ -185,9 +180,9 @@ class DistributedSim(DistEncSimMixin, HFLM):
     @property
     def max_length(self):
         if self.is_enc_dec:
-            return 10000  # self.tokenizer.max_len_single_sentence
+            return 100000  # self.tokenizer.max_len_single_sentence
         elif isinstance(self.gpt2, transformers.BloomForCausalLM):
-            return min(self.tokenizer.model_max_length, 10000)
+            return self.tokenizer.model_max_length
         else:
             return super().max_length
 
@@ -202,8 +197,8 @@ class DistributedGen(DistEncGenMixin, HFLM):
     @property
     def max_length(self):
         if self.is_enc_dec:
-            return 10000  # self.tokenizer.max_len_single_sentence
+            return 100000  # self.tokenizer.max_len_single_sentence
         elif isinstance(self.gpt2, transformers.BloomForCausalLM):
-            return min(self.tokenizer.model_max_length, 10000)
+            return self.tokenizer.model_max_length
         else:
             return super().max_length

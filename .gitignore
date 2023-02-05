@@ -2,7 +2,6 @@ env
 *.pyc
 data/
 lm_cache
-.cache/
 .idea
 .venv*/
 input_examples*/
