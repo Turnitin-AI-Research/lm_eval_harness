@@ -3,9 +3,10 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import itertools
 import ray
 import fire
+from main import results_fpath
 
 
-def run():
+def run(overwrite_results):
     # DEPRICATED: DO NOT submit jobs to a cluster because jobs will be run in the environment in which the cluster was started.
     # run "ray start --head --dashboard-host 0.0.0.0" from the repo root directory from within the venv lme.
     # If you to attach another machine to the cluster, then run "ray start --address=<head-node-ip>:6379" there.
@@ -70,8 +71,13 @@ def run():
         if submodel is not None:
             model_args = model_args + f',pretrained={submodel},PARALLELIZE={parallelize}'
         _args.extend(['--model_args', model_args])
-        future = run_eval.remote(_args)
-        futures.append(future)
+
+        results_path = results_fpath(*_args)
+        if results_path is not None and (not overwrite_results) and os.path.exists(results_path):
+            print(f'Skipping config:\n{_args}')
+        else:
+            future = run_eval.remote(_args)
+            futures.append(future)
 
     responses = ray.get(futures)
     # for resp in responses:
@@ -82,9 +88,9 @@ def run():
     print(responses)
 
 
-def run_wrapper(shutdown_at_exit: bool = False):
+def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False):
     try:
-        run()
+        run(overwrite_results)
     except Exception as e:
         if shutdown_at_exit:
             print(e)
