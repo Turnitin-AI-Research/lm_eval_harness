@@ -4,6 +4,8 @@ import torch
 from lm_eval.base import BaseLM
 from lm_eval.models.dist_enc_model import DistEncSimMixin, DistEncGenMixin
 
+MAX_MAX_LEN = 10240
+
 
 def str_to_bool(arg: Optional[str]) -> bool:
     """Convert parameter string to bool"""
@@ -185,9 +187,9 @@ class DistributedSim(DistEncSimMixin, HFLM):
     @property
     def max_length(self):
         if self.is_enc_dec:
-            return 10000  # self.tokenizer.max_len_single_sentence
+            return MAX_MAX_LEN  # self.tokenizer.max_len_single_sentence
         elif isinstance(self.gpt2, transformers.BloomForCausalLM):
-            return min(self.tokenizer.model_max_length, 10000)
+            return min(self.tokenizer.model_max_length, MAX_MAX_LEN)
         else:
             return super().max_length
 
@@ -202,8 +204,8 @@ class DistributedGen(DistEncGenMixin, HFLM):
     @property
     def max_length(self):
         if self.is_enc_dec:
-            return 10000  # self.tokenizer.max_len_single_sentence
+            return MAX_MAX_LEN  # self.tokenizer.max_len_single_sentence
         elif isinstance(self.gpt2, transformers.BloomForCausalLM):
-            return min(self.tokenizer.model_max_length, 10000)
+            return min(self.tokenizer.model_max_length, MAX_MAX_LEN)
         else:
             return super().max_length

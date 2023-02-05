@@ -5,7 +5,7 @@ import ray
 import fire
 
 
-def run(shutdown_at_exit: bool = False):
+def run():
     # DEPRICATED: DO NOT submit jobs to a cluster because jobs will be run in the environment in which the cluster was started.
     # run "ray start --head --dashboard-host 0.0.0.0" from the repo root directory from within the venv lme.
     # If you to attach another machine to the cluster, then run "ray start --address=<head-node-ip>:6379" there.
@@ -17,7 +17,7 @@ def run(shutdown_at_exit: bool = False):
     ray.init(address='local')
 
     results_dir = "lmeval_results_sim_bloomz71b/"
-    num_fewshots = [5]
+    num_fewshots = [5, 0]
     task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
     pretrained = ['bigscience/bloomz-7b1']
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
@@ -29,7 +29,9 @@ def run(shutdown_at_exit: bool = False):
     norms = ['layer']
     sim_funcs = ['dot_product', 'cosine_sim']
     # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-    encoding_layers = [23, None]  # , 'E', 0, 'middle']
+    encoding_layers = ['-1', None, 'E', 0]  # , 'E', 0, 'middle']
+    parallelize = True
+
     if 0 in num_fewshots:
         ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples', 'segment_each_example', 'sentence_level_segmentation'}
         ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES = {None}
@@ -55,7 +57,7 @@ def run(shutdown_at_exit: bool = False):
                 continue
 
         _args = [
-            "--device", "0",
+            "--device", "cpu",
             "--output_dir", results_dir,
             # "--limit", "5",
             "--tasks", task,
@@ -66,7 +68,7 @@ def run(shutdown_at_exit: bool = False):
         ]
         model_args = f'WORD_AGG_SCHEME={word_agg_scheme},EXAMPLE_AGG_SCHEME={example_agg_scheme},SEGMENT_AGG_SCHEME={segment_agg_scheme},NORM={norm},SIMILARITY_FUNC={sim_func},ENCODING_LAYER={encoding_layer}'
         if submodel is not None:
-            model_args = model_args + f',pretrained={submodel}'
+            model_args = model_args + f',pretrained={submodel},PARALLELIZE={parallelize}'
         _args.extend(['--model_args', model_args])
         future = run_eval.remote(_args)
         futures.append(future)
@@ -78,9 +80,19 @@ def run(shutdown_at_exit: bool = False):
     #         json.dump(results, f, indent=2)
 
     print(responses)
+
+
+def run_wrapper(shutdown_at_exit: bool = False):
+    try:
+        run()
+    except Exception as e:
+        if shutdown_at_exit:
+            print(e)
+        else:
+            raise e
     if shutdown_at_exit:
         os.system('sudo shutdown now -h')
 
 
 if __name__ == '__main__':
-    fire.Fire(run)
+    fire.Fire(run_wrapper)

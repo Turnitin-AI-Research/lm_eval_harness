@@ -110,18 +110,17 @@ class DistEncSimMixin:
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
         assert self.NORM in ['L2', 'layer', None]
         # Which transformer hidden layer to pick encodings from. None => top layer
-        print(f'self.ENCODING_LAYER = {type(self.ENCODING_LAYER)}:{self.ENCODING_LAYER}')
         assert (self.ENCODING_LAYER in ['middle', None, 'E']) or isinstance(
-            self.ENCODING_LAYER, int) or re.fullmatch(r'\d+', self.ENCODING_LAYER)
-        if isinstance(self.ENCODING_LAYER, str) and (match := re.fullmatch(r'\d+', self.ENCODING_LAYER)):
+            self.ENCODING_LAYER, int) or (re.fullmatch(r'[-+]?\d+', self.ENCODING_LAYER) is not None), f'Invalid ENCODING_LAYER config {self.ENCODING_LAYER}'
+        if isinstance(self.ENCODING_LAYER, str) and (match := re.fullmatch(r'[-+]?\d+', self.ENCODING_LAYER)):
             self.ENCODING_LAYER = int(self.ENCODING_LAYER)
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""
-        if shift_inp_right:
-            return len(seq) > (self.max_length + 1)
-        else:
-            return len(seq) > self.max_length
+        ret_val: bool = (len(seq) > (self.max_length + 1)) if shift_inp_right else (len(seq) > self.max_length)
+        if ret_val:
+            print(f'Encountered overflow seq. Len = {len(seq)}')
+        return ret_val
 
     def _normalize(self, T: Tensor, *, dim: int = -1) -> Tensor:
         """Compute Lp norm i.e., normalize the magnitude of vectors to 1."""
