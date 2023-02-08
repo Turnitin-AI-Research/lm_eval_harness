@@ -3,6 +3,7 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 import itertools
 import ray
 import fire
+import torch
 from main import results_fpath
 
 
@@ -15,7 +16,12 @@ def run(overwrite_results):
 
     # Start a new cluster in order to ensure we're using the right environment. This will prevent us from connecting to a running
     # ray cluster that was started in another environment.
-    ray.init(address='local')
+    NUM_GPUS = torch.cuda.device_count()
+    NUM_GPUS_PER_RUN = 2
+    MAX_PARALLEL_RUNS =  NUM_GPUS // NUM_GPUS_PER_RUN
+    # NUM_CPUS_PER_RUN = os.cpu_count() // MAX_PARALLEL_RUNS
+    print(f'NUM_GPUS_PER_RUN={NUM_GPUS_PER_RUN}')
+    ray.init(address='local', num_cpus=MAX_PARALLEL_RUNS + 8)
 
     results_dir = "lmeval_results_sim_bloomz71b/"
     num_fewshots = [5, 0]
@@ -27,7 +33,7 @@ def run(overwrite_results):
     word_agg_schemes = ['mean', 'w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
     segment_agg_schemes = [None]
     example_agg_schemes = [None, 'mean', 'soft_cluster']
-    norms = ['layer']
+    norms = [None, 'layer']
     sim_funcs = ['dot_product', 'cosine_sim']
     # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
     encoding_layers = ['-2', None, 'middle', 'E', 0]  # , 'E', 0, 'middle']
@@ -39,8 +45,7 @@ def run(overwrite_results):
         assert ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES & set(example_agg_schemes)
         assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
 
-
-    @ray.remote(max_calls=1, num_gpus=2)
+    @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
     # @ray.remote(max_calls=1, num_cpus=4)
     def run_eval(args):
         os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
