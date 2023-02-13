@@ -82,7 +82,9 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
     metrics = tasks
     metrics_re = re.compile(r'^(' + r'|'.join([f'({m})' for m in metrics]) + ').*')
     print(f'metric cols regexp = {metrics_re}')
-    model_cols = {'model_type', 'pretrained', 'ENCODING_LAYER', 'WORD_AGG_SCHEME', 'SEGMENT_AGG_SCHEME', 'EXAMPLE_AGG_SCHEME', 'NORM', 'SIMILARITY_FUNC', 'DECODING_SCHEME', 'STEER_VEC_INJ_LAYERS', 'STEER_VEC_INJ_POS', 'ADD_POS'}
+    model_cols = {'model_type', 'pretrained', 'ENCODING_LAYER', 'WORD_AGG_SCHEME', 'SEGMENT_AGG_SCHEME',
+                  'EXAMPLE_AGG_SCHEME', 'NORM', 'SIMILARITY_FUNC', 'DECODING_SCHEME', 'STEER_VEC_INJ_LAYERS',
+                  'STEER_VEC_INJ_POS', 'ADD_POS', 'OUT_ENCODING_LAYER', 'OUT_WORD_AGG_SCHEME'}
     model_cols = model_cols & set(df.columns)  # {col for col in model_cols if col in df.columns}
     task_cols = {'num_fewshot', 'encoding_scheme'} & set(df.columns)
     # metric_cols = {col for col in df.columns if metrics_re.fullmatch(col) is not None}

@@ -122,13 +122,32 @@ def _test(limit: int = 100, device: str = '6', model_parallel: bool = False):
         # }
         expected = 0.2
     elif limit is None:
-        # "hellaswag_d": {
-        #     "acc": 0.29117705636327423,
-        #     "acc_stderr": 0.004533764686211992,
+        # {
+        # "results": {
+        #     "hellaswag_d": {
+        #     "acc": 0.28052180840470026,
+        #     "acc_stderr": 0.00448336037014057,
         #     "rand_acc": 0.25,
         #     "rand_acc_stderr": 0.0
         #     }
-        expected = 0.291177
+        # },
+        # "versions": {
+        #     "hellaswag_d": 0
+        # },
+        # "config": {
+        #     "model": "dist_sim",
+        #     "model_args": "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B,ENCODING_LAYER=middle,PARALLELIZE=False",
+        #     "task_args": "encoding_scheme=concat_all_examples",
+        #     "num_fewshot": 5,
+        #     "batch_size": null,
+        #     "device": "1",
+        #     "no_cache": true,
+        #     "limit": null,
+        #     "bootstrap_iters": 100000,
+        #     "description_dict": {}
+        # }
+        # }
+        expected = 0.28052
 
     assert results['results']['hellaswag_d']['acc'] == expected, f"Test Failed: expected={expected}, got={results['results']['hellaswag_d']['acc']}"
     print('Test Passed')

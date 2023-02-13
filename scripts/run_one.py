@@ -10,10 +10,9 @@ _args = [
     "--model", 'dist_sim',
     "--no_cache",
     '--num_fewshot', '5',
-    '--task_args', 'encoding_scheme=segment_each_example',  # merge_all_segments
+    '--task_args', 'encoding_scheme=segment_each_example',
     '--model_args', ('WORD_AGG_SCHEME=w1mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B,'
-                     + 'ENCODING_LAYER=23'
-                    #  + ',DECODING_SCHEME=steer_vec,STEER_VEC_INJ_LAYERS=10-12,STEER_VEC_INJ_POS=all'
+                     + 'ENCODING_LAYER=23,OUT_ENCODING_LAYER=OE,OUT_WORD_AGG_SCHEME=mean'
                      )
 ]
 

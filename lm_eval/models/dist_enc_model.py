@@ -34,6 +34,27 @@ def str_to_bool(arg: Optional[str]) -> bool:
     return arg == 'true'
 
 
+def normalize(norm, T: Tensor, *, dim: int = -1, eps=1e-6) -> Tensor:
+    """Compute norm."""
+    if norm is None:
+        return T
+    elif norm == 'L2':
+        return torch.nn.functional.normalize(T, p=2, dim=dim)
+    elif norm == 'layer':
+        raise ValueError('"layer" is not supported. Use layerNorm instead.')
+        # return T / T.std(dim=dim, keepdim=True)
+    elif norm == 'layerNorm':
+        # return (T - T.mean(dim=dim, keepdim=True)) / T.std(dim=dim, keepdim=True)
+        assert dim == -1
+        return torch.nn.functional.layer_norm(T, T.shape[-1:])
+    elif norm == 'rms':
+        variance = T.pow(2).mean(dim=dim, keepdim=True)
+        return T * torch.rsqrt(variance + eps)
+    else:
+        raise NotImplementedError
+
+
+
 _LOGGER = get_logger(__name__)
 
 
@@ -47,11 +68,13 @@ class DistEncSimMixin:
     def __init__(self,
                  *args,
                  WORD_AGG_SCHEME: Optional[str] = None,
+                 OUT_WORD_AGG_SCHEME: Optional[str] = None,
                  SEGMENT_AGG_SCHEME: Optional[str] = None,  # TODO: was mean. need to retest with absent values
                  EXAMPLE_AGG_SCHEME: Optional[str] = None,  # TODO: was mean. need to retest with absent values
                  SIMILARITY_FUNC: Optional[str] = None,
                  NORM: Optional[str] = None,
                  ENCODING_LAYER: Optional[str] = None,
+                 OUT_ENCODING_LAYER: Optional[str] = None,
                 #  PARALLELIZE: Optional[str] = None,
                  ADD_POS: Optional[str] = None,
                  **kwargs) -> None:
@@ -61,11 +84,13 @@ class DistEncSimMixin:
         self.gpt2: transformers.PreTrainedModel
         self.tokenizer: transformers.PreTrainedTokenizer
         self.WORD_AGG_SCHEME: Optional[str] = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
+        self.OUT_WORD_AGG_SCHEME = self.WORD_AGG_SCHEME if OUT_WORD_AGG_SCHEME in [None, 'None'] else OUT_WORD_AGG_SCHEME
         self.SEGMENT_AGG_SCHEME: Optional[str] = SEGMENT_AGG_SCHEME if SEGMENT_AGG_SCHEME != 'None' else None
         self.EXAMPLE_AGG_SCHEME: Optional[str] = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
         self.SIMILARITY_FUNC: Optional[str] = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
         self.NORM: Optional[str] = NORM if NORM != 'None' else None
-        self.ENCODING_LAYER: Optional[str] = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
+        self.ENCODING_LAYER: Union[str, int, None] = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
+        self.OUT_ENCODING_LAYER: Union[str, int, None] = OUT_ENCODING_LAYER if OUT_ENCODING_LAYER != 'None' else None
         self.ADD_POS: bool = str_to_bool(ADD_POS)
         # self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
         # if self.PARALLELIZE:
@@ -90,7 +115,9 @@ class DistEncSimMixin:
             assert not self.is_enc_dec  # T5 uses relative pos-encoding, therefore ADD_POS does not apply.
             assert hasattr(self.gpt2, 'transformer') and hasattr(self.gpt2.transformer, 'wpe'), 'Could not find position embedding matrix'
             self.wpe = self.gpt2.transformer.wpe
-        if self.WORD_AGG_SCHEME is not None and 'w1mean' in self.WORD_AGG_SCHEME:
+        if (self.WORD_AGG_SCHEME is not None and 'w1mean' in self.WORD_AGG_SCHEME) or (
+            self.OUT_WORD_AGG_SCHEME is not None and 'w1mean' in self.OUT_WORD_AGG_SCHEME
+        ):
             self.agg_weights = torch.arange(1, self.max_length + 1, device=self.device).unsqueeze(0)  # (1, max_len)
         else:
             self.agg_weights = None
@@ -100,9 +127,29 @@ class DistEncSimMixin:
         """Return True if this is an encoder-decoder model like T5."""
         return hasattr(self.model, 'get_encoder')
 
+    @classmethod
+    def _verify_encoding_layer(cls, ENCODING_LAYER: Union[int, str, None]):
+        assert (ENCODING_LAYER in ['middle', None, 'E']) or isinstance(
+            ENCODING_LAYER, int) or (re.fullmatch(r'[-+]?\d+', ENCODING_LAYER) is not None), f'Invalid ENCODING_LAYER config {ENCODING_LAYER}'
+        if isinstance(ENCODING_LAYER, str) and (match := re.fullmatch(r'[-+]?\d+', ENCODING_LAYER)):
+            ENCODING_LAYER = int(ENCODING_LAYER)
+        return ENCODING_LAYER
+
+    def _verify_out_encoding_layer(self, OUT_ENCODING_LAYER: Union[int, str, None]):
+         # A None config value always implies "revert to old behaviour before this config setting was introduced". In this case
+         # it implies OUT_ENCODING_LAYER = IN_ENCODING_LAYER because that's how it was with earlier runs. This enables comparison
+         # of old results with new ones.
+        if OUT_ENCODING_LAYER is None:
+            OUT_ENCODING_LAYER = self.ENCODING_LAYER
+        elif (OUT_ENCODING_LAYER not in ['OE']):
+            OUT_ENCODING_LAYER = self._verify_encoding_layer(OUT_ENCODING_LAYER)
+        return OUT_ENCODING_LAYER
+
     def verify_config(self):
         if self.WORD_AGG_SCHEME is not None:
             assert re.fullmatch(r'([-]?relu[+]?\|)?((w1)?mean|last|concat)', self.WORD_AGG_SCHEME)
+        if self.OUT_WORD_AGG_SCHEME is not None:
+            assert re.fullmatch(r'([-]?relu[+]?\|)?((w1)?mean|last|concat)', self.OUT_WORD_AGG_SCHEME)
         # Whether to aggregate segments within a sample and if so, how.
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         # Whether to aggregate segments across samples and if so, how.
@@ -110,10 +157,11 @@ class DistEncSimMixin:
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
         assert self.NORM in ['L2', 'layer', None]
         # Which transformer hidden layer to pick encodings from. None => top layer
-        assert (self.ENCODING_LAYER in ['middle', None, 'E']) or isinstance(
-            self.ENCODING_LAYER, int) or (re.fullmatch(r'[-+]?\d+', self.ENCODING_LAYER) is not None), f'Invalid ENCODING_LAYER config {self.ENCODING_LAYER}'
-        if isinstance(self.ENCODING_LAYER, str) and (match := re.fullmatch(r'[-+]?\d+', self.ENCODING_LAYER)):
-            self.ENCODING_LAYER = int(self.ENCODING_LAYER)
+        self.ENCODING_LAYER = self._verify_encoding_layer(self.ENCODING_LAYER)
+        self.OUT_ENCODING_LAYER = self._verify_out_encoding_layer(self.OUT_ENCODING_LAYER)
+        if self.OUT_ENCODING_LAYER == 'OE':
+            oE = self.model.get_output_embeddings()
+            self.out_token_embeddings = torch.nn.Embedding(oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight)
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""
@@ -122,16 +170,10 @@ class DistEncSimMixin:
             print(f'Encountered overflow seq. Len = {len(seq)}')
         return ret_val
 
-    def _normalize(self, T: Tensor, *, dim: int = -1) -> Tensor:
+    def _normalize(self, T: Tensor, *, dim: int = -1, eps=1e-6, norm=None) -> Tensor:
         """Compute Lp norm i.e., normalize the magnitude of vectors to 1."""
-        if self.NORM is None:
-            return T
-        elif self.NORM == 'L2':
-            return torch.nn.functional.normalize(T, p=2, dim=dim)
-        elif self.NORM == 'layer':
-            return T / T.std(dim=dim, keepdim=True)
-        else:
-            raise NotImplementedError
+        norm = self.NORM if norm is None else norm
+        return normalize(norm, T, dim=dim, eps=eps)
 
     @staticmethod
     def _soft_cluster(Q: Tensor, M: Tensor) -> Tensor:
@@ -204,7 +246,11 @@ class DistEncSimMixin:
             retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
         return retdir
 
-    def _reduce_word_sequences(self, model_output: Dict, model_input: Dict) -> Tensor:
+    def _reduce_word_sequences(self,
+                               model_output: Dict,
+                               model_input: Dict,
+                               ENCODING_LAYER=None,
+                               WORD_AGG_SCHEME=None) -> Tensor:
         """Extract word vectors from model hidden states and aggregate them into a single concept vector
 
         :param model_output: Dict.
@@ -214,62 +260,67 @@ class DistEncSimMixin:
         :return: Tensor, shape = (batch_size, hidden_size)
             Each sequence in the batch reduced to an embedding of size hidden_size
         """
-        assert self.WORD_AGG_SCHEME is not None
-        # encoding_layer = len(model_output['hidden_states']) // 2 if self.ENCODING_LAYER == 'middle' else -1
+        if ENCODING_LAYER is None:
+            ENCODING_LAYER = self.ENCODING_LAYER
+        if WORD_AGG_SCHEME is None:
+            WORD_AGG_SCHEME = self.WORD_AGG_SCHEME
+        assert WORD_AGG_SCHEME is not None
+        # encoding_layer = len(model_output['hidden_states']) // 2 if ENCODING_LAYER == 'middle' else -1
         encoding_layer = None
-        if isinstance(self.ENCODING_LAYER, int):
-            encoding_layer = self.ENCODING_LAYER
-        elif self.ENCODING_LAYER == 'middle':
+        if isinstance(ENCODING_LAYER, int):
+            encoding_layer = ENCODING_LAYER
+        elif ENCODING_LAYER == 'middle':
             encoding_layer = len(model_output['hidden_states']) // 2
-        elif self.ENCODING_LAYER is None:
+        elif ENCODING_LAYER is None:
             encoding_layer = -1
-        elif self.ENCODING_LAYER == 'E':
+        elif ENCODING_LAYER in ['E', 'OE']:
             pass
         else:
-            raise ValueError(f'Unsupported value "{self.ENCODING_LAYER}" for ENCODING_LAYER')
+            raise ValueError(f'Unsupported value "{ENCODING_LAYER}" for ENCODING_LAYER')
         if encoding_layer is not None:
             concept_seqs = model_output['hidden_states'][encoding_layer]  # (batch, padding-len, hidden_size)
-        elif self.ENCODING_LAYER == 'E':
+        elif ENCODING_LAYER in ['E', 'OE']:
             concept_seqs = model_input['inputs_embeds']  # (batch, padding-len, hidden_size)
         else:
             raise RuntimeError()
 
         concept_seqs = concept_seqs.to(device=self.device)
 
-        if self.WORD_AGG_SCHEME.startswith('relu+|'):
+        if WORD_AGG_SCHEME.startswith('relu+|'):
             concept_seqs = self.act(concept_seqs) + concept_seqs
-        elif self.WORD_AGG_SCHEME.startswith('-relu+|'):
+        elif WORD_AGG_SCHEME.startswith('-relu+|'):
             concept_seqs = concept_seqs - self.act(-concept_seqs)
-        elif self.WORD_AGG_SCHEME.startswith('relu|'):
+        elif WORD_AGG_SCHEME.startswith('relu|'):
             concept_seqs = self.act(concept_seqs)
-        elif self.WORD_AGG_SCHEME.startswith('-relu|'):
+        elif WORD_AGG_SCHEME.startswith('-relu|'):
             concept_seqs = -self.act(-concept_seqs)
-        elif 'relu' in self.WORD_AGG_SCHEME:
-            raise ValueError(f'Unsupported WORD_AGG_SCHEME: {self.WORD_AGG_SCHEME}')
+        elif 'relu' in WORD_AGG_SCHEME:
+            raise ValueError(f'Unsupported WORD_AGG_SCHEME: {WORD_AGG_SCHEME}')
 
-        if self.WORD_AGG_SCHEME.endswith('concat'):
+        if WORD_AGG_SCHEME.endswith('concat'):
             # assert self.task.TASK_TYPE == 'gen'
             batch_size = concept_seqs.shape[0]
             seq_lens = model_input['seq_lens']
             aggregated_vectors = torch.stack([vector for row, seq_len in enumerate(seq_lens) for vector in concept_seqs[row, :seq_len]])
-        elif self.WORD_AGG_SCHEME.endswith('last'):
+        elif WORD_AGG_SCHEME.endswith('last'):
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
-        elif self.WORD_AGG_SCHEME.endswith('w1mean'):
+        elif WORD_AGG_SCHEME.endswith('w1mean'):
             padded_len = model_input['attention_mask'].shape[1]
             agg_weights = (self.agg_weights[0, :padded_len] * model_input['attention_mask']).unsqueeze(-1)
             aggregated_vectors = ((concept_seqs * agg_weights).sum(dim=1) / agg_weights.sum(dim=1))
-        elif self.WORD_AGG_SCHEME.endswith('mean'):
+        elif WORD_AGG_SCHEME.endswith('mean'):
             aggregated_vectors = ((concept_seqs * model_input['attention_mask'].unsqueeze(-1)).sum(dim=1)
                                   / model_input['seq_lens'].unsqueeze(-1))
         else:
             raise NotImplementedError
         return self._normalize(aggregated_vectors)  # (batch, hidden_size)
 
-    def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True) -> Tuple[Tensor, int]:  # (#strings, hidden_size)
-        # def _embed_strings(self, strings: List[str]) -> Tensor:  # (#strings, hidden_size)
+    def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:  # (#strings, hidden_size)
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
-        model_input['inputs_embeds'] = self.model.get_input_embeddings()(model_input['input_ids'])  # (#strings, padded_len, hidden_size)
+        ENCODING_LAYER = self.ENCODING_LAYER if not is_output else self.OUT_ENCODING_LAYER
+        token_embeddings = self.model.get_input_embeddings() if ENCODING_LAYER != 'OE' else self.out_token_embeddings
+        model_input['inputs_embeds'] = token_embeddings(model_input['input_ids'])  # (#strings, padded_len, hidden_size)
         device = model_input['inputs_embeds'].device
         if self.ADD_POS:
             input_shape = model_input['inputs_ids'].shape
@@ -284,7 +335,7 @@ class DistEncSimMixin:
             model_input['inputs_embeds'] = model_input['inputs_embeds'] + pos_e
             if sequential_pos:
                 pos = pos + model_input['seq_lens'].sum().item()
-        if self.ENCODING_LAYER != 'E':
+        if ENCODING_LAYER not in ['E', 'OE']:
             model_output = self.encoder(  # input_ids=model_input['input_ids'],
                                         inputs_embeds=model_input['inputs_embeds'],
                                         attention_mask=model_input['attention_mask'],
@@ -294,7 +345,12 @@ class DistEncSimMixin:
         else:
             model_output = None
             # model_input['inputs_embeds'] = self.model.get_input_embeddings()(model_input['input_ids'])
-        return self._reduce_word_sequences(model_output, model_input), pos  # (#strings, hidden_size)
+
+        WORD_AGG_SCHEME = self.OUT_WORD_AGG_SCHEME if is_output else self.WORD_AGG_SCHEME
+        return self._reduce_word_sequences(model_output,
+                                           model_input,
+                                           ENCODING_LAYER,
+                                           WORD_AGG_SCHEME), pos  # (#strings, hidden_size)
 
     def _embed_segments(self, sample: SegmentedSample, pos: int) -> Tuple[SegmentedSample, int]:
         """Embed segments of an example"""
@@ -312,14 +368,8 @@ class DistEncSimMixin:
     def _embed_choices(self, sample: SegmentedSample, pos: Optional[int]) -> SegmentedSample:
         """Embed choices of an example"""
         assert 'choices' in sample
-        sample['choices_embeddings'], pos = self._embed_strings(sample['choices'], pos, sequential_pos=False)  # (#choices, hidden_size)
+        sample['choices_embeddings'], pos = self._embed_strings(sample['choices'], pos, sequential_pos=False, is_output=True)  # (#choices, hidden_size)
         return sample
-
-    # def _embed_example_segments(self, sample: SegmentedSample, pos: Optional[int] = None) -> Tuple[Tensor, Optional[int]]:
-    #     """Embed segments into a seqeunce of embeddings."""
-    #     assert 'segments' in sample
-    #     sample, pos = self._embed_sample({'segments': sample['segments']}, pos)
-    #     return sample['context_embeddings'], pos
 
     def _embed_context(self, examples: List[SegmentedSample]) -> Tuple[Tensor, Optional[int]]:
         """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
@@ -376,7 +426,7 @@ class DistEncSimMixin:
                     scores = scores.amax(dim=1)  # (#choices,)
                 else:
                     raise NotImplementedError
-                scores = torch.nn.functional.softmax(scores)
+                scores = torch.nn.functional.softmax(scores, dim=0)
                 results.append({'scores': scores})
         return results
 
@@ -479,6 +529,10 @@ class DistEncGenMixin(DistEncSimMixin):
                 if doc.task.ENCODING_SCHEME == 'cross_encoding':
                     assert len(context) == 1
                     assert len(context[0]['segments']) == 1
+                    assert self.WORD_AGG_SCHEME is None
+                    assert self.OUT_WORD_AGG_SCHEME is None
+                    assert self.ENCODING_LAYER is None
+                    assert self.OUT_ENCODING_LAYER is None
                     # TODO: If ctx == '' context_enc = [eot_token_id]. Line 193 in base.py
                     ctx = context[0]['segments'][0]
                 else:
@@ -540,6 +594,10 @@ class DistEncGenMixin(DistEncSimMixin):
                 if doc.task.ENCODING_SCHEME == 'cross_encoding':
                     assert len(context) == 1
                     assert len(context[0]['segments']) == 1
+                    assert self.WORD_AGG_SCHEME is None
+                    assert self.OUT_WORD_AGG_SCHEME is None
+                    assert self.ENCODING_LAYER is None
+                    assert self.OUT_ENCODING_LAYER is None
                     # TODO: If ctx == '' context_enc = [eot_token_id]. Line 193 in base.py
                     ctx = context[0]['segments'][0]
                     ctx_ids = self.tokenizer(ctx, return_tensors='pt', add_special_tokens=True).input_ids.to(device=self.device)

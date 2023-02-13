@@ -123,14 +123,14 @@
             "justMyCode": false,
             "args": [
                 "--model", "dist_sim",
-                "--model_args", "WORD_AGG_SCHEME=last,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B",
+                "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B,ENCODING_LAYER=middle",
                 "--tasks",
                 "hellaswag_d",
                 "--num_fewshot",
                 "5",
-                "--device", "cpu",
+                "--device", "7",
                 "--task_args",
-                "encoding_scheme=segment_each_example",
+                "encoding_scheme=concat_all_examples",
                 "--limit",
                 "10",
                 "--no_cache"
@@ -150,6 +150,32 @@
             "args": [
                 "--model", "dist_sim",
                 "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=google/flan-t5-xl,PARALLELIZE=True",
+                "--tasks",
+                "hellaswag_d",
+                "--num_fewshot",
+                "0",
+                "--device", "cpu",
+                "--task_args",
+                "encoding_scheme=sentence_level_segmentation",
+                "--limit",
+                "100",
+                "--no_cache"
+            ],
+            "cwd": "${workspaceFolder}",
+            // "env": {
+            //     "CUDA_LAUNCH_BLOCKING": "1"
+            // }
+        },
+        {
+            "name": "hellaswag_d_bloomz3b",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model", "dist_sim",
+                "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=bigscience/bloomz-3b,PARALLELIZE=True",
                 "--tasks",
                 "hellaswag_d",
                 "--num_fewshot",
@@ -206,7 +232,7 @@
                 "dist_gen",
                 // "--model_args", "WORD_AGG_SCHEME=None,NORM=None,pretrained=google/flan-t5-xl,PARALLELIZE=True",
                 // "--model_args", "WORD_AGG_SCHEME=None,NORM=None,pretrained=bigscience/T0_3B,PARALLELIZE=True",
-                "--model_args", "NORM=None,pretrained=google/flan-t5-xl,PARALLELIZE=True",
+                "--model_args", "WORD_AGG_SCHEME=concat,NORM=None,pretrained=google/flan-t5-xl,PARALLELIZE=True",
                 "--tasks",
                 "hellaswag_dg",
                 "--num_fewshot",
@@ -214,7 +240,7 @@
                 "--device",
                 "cpu",
                 "--task_args",
-                "encoding_scheme=cross_encoding",
+                "encoding_scheme=sentence_level_segmentation",
                 "--limit",
                 "10",
                 "--no_cache"
