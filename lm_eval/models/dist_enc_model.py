@@ -147,15 +147,17 @@ class DistEncSimMixin:
 
     def verify_config(self):
         if self.WORD_AGG_SCHEME is not None:
-            assert re.fullmatch(r'([-]?relu[+]?\|)?((w1)?mean|last|concat)', self.WORD_AGG_SCHEME)
+            assert re.fullmatch(r'([-]?relu[+]?\|(layerNorm[+]?\|)?)?((w1)?mean|last|concat)', self.WORD_AGG_SCHEME), (
+                f'Invlaid WORD_AGG_SCHEME {self.WORD_AGG_SCHEME}')
         if self.OUT_WORD_AGG_SCHEME is not None:
-            assert re.fullmatch(r'([-]?relu[+]?\|)?((w1)?mean|last|concat)', self.OUT_WORD_AGG_SCHEME)
+            assert re.fullmatch(r'([-]?relu[+]?\|(layerNorm[+]?\|)?)?((w1)?mean|last|concat)', self.OUT_WORD_AGG_SCHEME), (
+                f'Invlaid OUT_WORD_AGG_SCHEME {self.OUT_WORD_AGG_SCHEME}')
         # Whether to aggregate segments within a sample and if so, how.
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         # Whether to aggregate segments across samples and if so, how.
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
-        assert self.NORM in ['L2', 'layer', None]
+        assert self.NORM in ['L2', 'layer', 'layerNorm', None]
         # Which transformer hidden layer to pick encodings from. None => top layer
         self.ENCODING_LAYER = self._verify_encoding_layer(self.ENCODING_LAYER)
         self.OUT_ENCODING_LAYER = self._verify_out_encoding_layer(self.OUT_ENCODING_LAYER)
@@ -286,17 +288,30 @@ class DistEncSimMixin:
 
         concept_seqs = concept_seqs.to(device=self.device)
 
-        if WORD_AGG_SCHEME.startswith('relu+|'):
+        if WORD_AGG_SCHEME.startswith('relu|layerNorm+|'):
+            concept_seqs = normalize('layerNorm', self.act(concept_seqs)) + concept_seqs
+        elif WORD_AGG_SCHEME.startswith('relu+|'):
             concept_seqs = self.act(concept_seqs) + concept_seqs
+        elif WORD_AGG_SCHEME.startswith('-relu|layerNorm+|'):
+            concept_seqs = normalize('layerNorm', -self.act(-concept_seqs)) + concept_seqs
         elif WORD_AGG_SCHEME.startswith('-relu+|'):
             concept_seqs = concept_seqs - self.act(-concept_seqs)
+        elif WORD_AGG_SCHEME.startswith('relu|layerNorm|'):
+            concept_seqs = normalize('layerNorm', self.act(concept_seqs))
         elif WORD_AGG_SCHEME.startswith('relu|'):
             concept_seqs = self.act(concept_seqs)
+        elif WORD_AGG_SCHEME.startswith('-relu|layerNorm|'):
+            concept_seqs = normalize('layerNorm', -self.act(-concept_seqs))
         elif WORD_AGG_SCHEME.startswith('-relu|'):
             concept_seqs = -self.act(-concept_seqs)
         elif 'relu' in WORD_AGG_SCHEME:
             raise ValueError(f'Unsupported WORD_AGG_SCHEME: {WORD_AGG_SCHEME}')
+        elif WORD_AGG_SCHEME.startswith('layerNorm|'):
+            concept_seqs = normalize('layerNorm', concept_seqs)
+        elif 'layerNorm' in WORD_AGG_SCHEME:
+            raise ValueError(f'Unsupported WORD_AGG_SCHEME: {WORD_AGG_SCHEME}')
 
+        do_normalize: bool = True
         if WORD_AGG_SCHEME.endswith('concat'):
             # assert self.task.TASK_TYPE == 'gen'
             batch_size = concept_seqs.shape[0]
@@ -305,6 +320,7 @@ class DistEncSimMixin:
         elif WORD_AGG_SCHEME.endswith('last'):
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
+            do_normalize = False
         elif WORD_AGG_SCHEME.endswith('w1mean'):
             padded_len = model_input['attention_mask'].shape[1]
             agg_weights = (self.agg_weights[0, :padded_len] * model_input['attention_mask']).unsqueeze(-1)
@@ -314,7 +330,10 @@ class DistEncSimMixin:
                                   / model_input['seq_lens'].unsqueeze(-1))
         else:
             raise NotImplementedError
-        return self._normalize(aggregated_vectors)  # (batch, hidden_size)
+
+        if do_normalize:
+            aggregated_vectors = self._normalize(aggregated_vectors)  # (batch, hidden_size)
+        return aggregated_vectors  # (batch, hidden_size)
 
     def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:  # (#strings, hidden_size)
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)

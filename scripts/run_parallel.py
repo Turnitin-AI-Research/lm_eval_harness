@@ -6,9 +6,9 @@ import scripts.run_utils as utils
 from main import results_fpath
 
 
-def run(overwrite_results: bool = False):
-    NUM_GPUS_PER_RUN = 1
-    utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN)
+def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
+    # utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN)
+    utils.ray_init(cluster=cluster)
 
     results_dir = "lmeval_results_sim_latest/"
     num_fewshots = [0, 5]
@@ -18,14 +18,14 @@ def run(overwrite_results: bool = False):
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
-    word_agg_schemes = ['relu|w1mean', 'w1mean']
+    word_agg_schemes = ['w1mean', 'relu|layerNorm|w1mean', 'relu|layerNorm+|w1mean']
     segment_agg_schemes = [None]
     example_agg_schemes = [None, 'mean', 'soft_cluster']
-    norms = ['layer', None]
+    norms = ['layerNorm', None]
     sim_funcs = ['dot_product']
     # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-    encoding_layers = [23]  # , 'E', 0, 'middle']
-    output_enclayer_and_aggschemes: list[tuple] = [(None, 'mean')]  # [('OE', 'mean')]
+    encoding_layers = [23, None, 'middle', 0, 'E']  # , 'E', 0, 'middle']
+    output_enclayer_and_aggschemes: list[tuple] = [(None, None)]  # [('OE', 'mean')]
     if 0 in num_fewshots:
         ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples',
                                              'segment_each_example', 'sentence_level_segmentation'}
@@ -87,9 +87,9 @@ def run(overwrite_results: bool = False):
     return responses
 
 
-def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False):
+def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False, NUM_GPUS_PER_RUN: int = 1, cluster: str = 'auto'):
     try:
-        run(overwrite_results)
+        run(overwrite_results=overwrite_results, NUM_GPUS_PER_RUN=NUM_GPUS_PER_RUN, cluster=cluster)
     except Exception as e:
         if shutdown_at_exit:
             print(e)
