@@ -41,15 +41,16 @@ def normalize(norm, T: Tensor, *, dim: int = -1, eps=1e-6) -> Tensor:
     elif norm == 'L2':
         return torch.nn.functional.normalize(T, p=2, dim=dim)
     elif norm == 'layer':
-        raise ValueError('"layer" is not supported. Use layerNorm instead.')
-        # return T / T.std(dim=dim, keepdim=True)
-    elif norm == 'layerNorm':
+        raise ValueError('"layer" is not supported. Use zNorm or varNorm instead.')
+    elif norm == 'varNorm':
+        return T / T.std(dim=dim, keepdim=True)
+    elif norm == 'zNorm':
         # return (T - T.mean(dim=dim, keepdim=True)) / T.std(dim=dim, keepdim=True)
         assert dim == -1
         return torch.nn.functional.layer_norm(T, T.shape[-1:])
-    elif norm == 'rms':
-        variance = T.pow(2).mean(dim=dim, keepdim=True)
-        return T * torch.rsqrt(variance + eps)
+    # elif norm == 'rms':
+    #     variance = T.pow(2).mean(dim=dim, keepdim=True)
+    #     return T * torch.rsqrt(variance + eps)
     else:
         raise NotImplementedError
 
@@ -147,17 +148,17 @@ class DistEncSimMixin:
 
     def verify_config(self):
         if self.WORD_AGG_SCHEME is not None:
-            assert re.fullmatch(r'([-]?relu[+]?\|(layerNorm[+]?\|)?)?((w1)?mean|last|concat)', self.WORD_AGG_SCHEME), (
+            assert re.fullmatch(r'([-]?relu[+]?\|(zNorm[+]?\|)?)?((w1)?mean|last|concat)', self.WORD_AGG_SCHEME), (
                 f'Invlaid WORD_AGG_SCHEME {self.WORD_AGG_SCHEME}')
         if self.OUT_WORD_AGG_SCHEME is not None:
-            assert re.fullmatch(r'([-]?relu[+]?\|(layerNorm[+]?\|)?)?((w1)?mean|last|concat)', self.OUT_WORD_AGG_SCHEME), (
+            assert re.fullmatch(r'([-]?relu[+]?\|(zNorm[+]?\|)?)?((w1)?mean|last|concat)', self.OUT_WORD_AGG_SCHEME), (
                 f'Invlaid OUT_WORD_AGG_SCHEME {self.OUT_WORD_AGG_SCHEME}')
         # Whether to aggregate segments within a sample and if so, how.
         assert self.SEGMENT_AGG_SCHEME in ['mean', None]
         # Whether to aggregate segments across samples and if so, how.
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None, 'soft_cluster']
         assert self.SIMILARITY_FUNC in ['dot_product', 'cosine_sim', None]  # Concept embedding similarity func
-        assert self.NORM in ['L2', 'layer', 'layerNorm', None]
+        assert self.NORM in ['L2', 'varNorm', 'zNorm', None]
         # Which transformer hidden layer to pick encodings from. None => top layer
         self.ENCODING_LAYER = self._verify_encoding_layer(self.ENCODING_LAYER)
         self.OUT_ENCODING_LAYER = self._verify_out_encoding_layer(self.OUT_ENCODING_LAYER)
@@ -288,27 +289,27 @@ class DistEncSimMixin:
 
         concept_seqs = concept_seqs.to(device=self.device)
 
-        if WORD_AGG_SCHEME.startswith('relu|layerNorm+|'):
-            concept_seqs = normalize('layerNorm', self.act(concept_seqs)) + concept_seqs
+        if WORD_AGG_SCHEME.startswith('relu|zNorm+|'):
+            concept_seqs = normalize('zNorm', self.act(concept_seqs)) + concept_seqs
         elif WORD_AGG_SCHEME.startswith('relu+|'):
             concept_seqs = self.act(concept_seqs) + concept_seqs
-        elif WORD_AGG_SCHEME.startswith('-relu|layerNorm+|'):
-            concept_seqs = normalize('layerNorm', -self.act(-concept_seqs)) + concept_seqs
+        elif WORD_AGG_SCHEME.startswith('-relu|zNorm+|'):
+            concept_seqs = normalize('zNorm', -self.act(-concept_seqs)) + concept_seqs
         elif WORD_AGG_SCHEME.startswith('-relu+|'):
             concept_seqs = concept_seqs - self.act(-concept_seqs)
-        elif WORD_AGG_SCHEME.startswith('relu|layerNorm|'):
-            concept_seqs = normalize('layerNorm', self.act(concept_seqs))
+        elif WORD_AGG_SCHEME.startswith('relu|zNorm|'):
+            concept_seqs = normalize('zNorm', self.act(concept_seqs))
         elif WORD_AGG_SCHEME.startswith('relu|'):
             concept_seqs = self.act(concept_seqs)
-        elif WORD_AGG_SCHEME.startswith('-relu|layerNorm|'):
-            concept_seqs = normalize('layerNorm', -self.act(-concept_seqs))
+        elif WORD_AGG_SCHEME.startswith('-relu|zNorm|'):
+            concept_seqs = normalize('zNorm', -self.act(-concept_seqs))
         elif WORD_AGG_SCHEME.startswith('-relu|'):
             concept_seqs = -self.act(-concept_seqs)
         elif 'relu' in WORD_AGG_SCHEME:
             raise ValueError(f'Unsupported WORD_AGG_SCHEME: {WORD_AGG_SCHEME}')
-        elif WORD_AGG_SCHEME.startswith('layerNorm|'):
-            concept_seqs = normalize('layerNorm', concept_seqs)
-        elif 'layerNorm' in WORD_AGG_SCHEME:
+        elif WORD_AGG_SCHEME.startswith('zNorm|'):
+            concept_seqs = normalize('zNorm', concept_seqs)
+        elif 'zNorm' in WORD_AGG_SCHEME:
             raise ValueError(f'Unsupported WORD_AGG_SCHEME: {WORD_AGG_SCHEME}')
 
         do_normalize: bool = True
