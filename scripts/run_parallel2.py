@@ -7,24 +7,25 @@ from main import results_fpath
 
 
 def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
-    # utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN)
-    utils.ray_init(cluster=cluster)
+    utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN, cluster=cluster)
+    # utils.ray_init(cluster=cluster)
 
-    results_dir = "lmeval_results_sim_latest/"
-    num_fewshots = [0]
+    results_dir = "lmeval_results_t5/"
+    num_fewshots = [0, 5]
     task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = ['EleutherAI/gpt-neo-1.3B']
+    pretrained = ['google/flan-t5-xl']  # ['EleutherAI/gpt-neo-1.3B']
+    parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
-    word_agg_schemes = ['w1mean', 'mean']
-    segment_agg_schemes = ['mean']
-    example_agg_schemes = [None]
+    word_agg_schemes = ['mean', 'relu|zNorm|mean']
+    segment_agg_schemes = ['mean', None]
+    example_agg_schemes = [None, 'mean']
     norms = [None, 'varNorm', 'zNorm']
     sim_funcs = ['dot_product', 'cosine_sim']
     # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-    encoding_layers = [None, 23, 'middle', 'E', 0]  # , 'E', 0, 'middle']
+    encoding_layers = [None]  # ,23, 'E', 0, 'middle']
     output_enclayer_and_aggschemes: list[tuple] = [(None, None)]  # [('OE', 'mean')]
     if 0 in num_fewshots:
         ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples',
@@ -51,7 +52,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
                 continue
 
         _args = [
-            "--device", "0",
+            "--device", ("cpu" if parallelize else "0"),
             "--output_dir", results_dir,
             # "--limit", "5",
             "--tasks", task,
@@ -68,6 +69,8 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
             model_args = model_args + f',OUT_WORD_AGG_SCHEME={out_word_agg_scheme}'
         if out_encoding_layer is not None:
             model_args = model_args + f',OUT_ENCODING_LAYER={out_encoding_layer}'
+        if parallelize:
+            model_args = model_args + ',PARALLELIZE=True'
         _args.extend(['--model_args', model_args])
 
         results_path = results_fpath(*_args)
