@@ -7,13 +7,13 @@ from main import results_fpath
 
 
 def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
-    # utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN)
-    utils.ray_init(cluster=cluster)
+    utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN, cluster=cluster)
 
     results_dir = "lmeval_results_gen/"
     num_fewshots = [0, 5]
     task_models = [('hellaswag_dg', 'dist_gen'), ('webqs_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = ['EleutherAI/gpt-neo-1.3B']
+    pretrained = ['EleutherAI/gpt-neox-20B']  # ['EleutherAI/gpt-neo-1.3B']
+    parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
@@ -51,7 +51,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
                 continue
 
         _args = [
-            "--device", "0",
+            "--device", ("cpu" if parallelize else "0"),
             "--output_dir", results_dir,
             # "--limit", "5",
             "--tasks", task,
@@ -68,6 +68,8 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
             model_args = model_args + f',OUT_WORD_AGG_SCHEME={out_word_agg_scheme}'
         if out_encoding_layer is not None:
             model_args = model_args + f',OUT_ENCODING_LAYER={out_encoding_layer}'
+        if parallelize:
+            model_args = model_args + ',PARALLELIZE=True'
         _args.extend(['--model_args', model_args])
 
         results_path = results_fpath(*_args)
