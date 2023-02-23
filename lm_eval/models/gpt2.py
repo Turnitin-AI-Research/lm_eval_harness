@@ -59,18 +59,21 @@ class HFLM(BaseLM):
             self.gpt2 = transformers.AutoModelForCausalLM.from_pretrained(
                 pretrained,
                 revision=revision + ("/" + subfolder if subfolder is not None else ""),
-                device_map='auto' if self.PARALLELIZE else None,
+                # device_map='auto' if self.PARALLELIZE else None,
                 cache_dir=cache_dir
             )
+            if self.PARALLELIZE:
+                self._device = 'cpu'
         except ValueError:
             self.gpt2 = transformers.AutoModelForSeq2SeqLM.from_pretrained(
                 pretrained,
-                device_map='auto' if self.PARALLELIZE else None,
+                # device_map='auto' if self.PARALLELIZE else None,
                 cache_dir=cache_dir
             )
-        if self.PARALLELIZE:
-            self._device = 'cpu'
-        else:
+            if self.PARALLELIZE:
+                self.gpt2.parallelize()
+                self._device = 0
+        if not self.PARALLELIZE:
             self.gpt2 = self.gpt2.to(self.device)
         self.gpt2.eval()
 

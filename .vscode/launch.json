@@ -123,7 +123,7 @@
             "justMyCode": false,
             "args": [
                 "--model", "dist_sim",
-                "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B,ENCODING_LAYER=middle",
+                "--model_args", "WORD_AGG_SCHEME=w1mean,EXAMPLE_AGG_SCHEME=mean,SEGMENT_AGG_SCHEME=mean,NORM=varNorm,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B,ENCODING_LAYER=middle",
                 "--tasks",
                 "hellaswag_d",
                 "--num_fewshot",
@@ -149,7 +149,7 @@
             "justMyCode": false,
             "args": [
                 "--model", "dist_sim",
-                "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=google/flan-t5-xl,PARALLELIZE=True",
+                "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=None,SIMILARITY_FUNC=dot_product,pretrained=google/flan-t5-xl,PARALLELIZE=True",
                 "--tasks",
                 "hellaswag_d",
                 "--num_fewshot",
@@ -158,7 +158,7 @@
                 "--task_args",
                 "encoding_scheme=sentence_level_segmentation",
                 "--limit",
-                "100",
+                "10",
                 "--no_cache"
             ],
             "cwd": "${workspaceFolder}",
@@ -232,7 +232,7 @@
                 "dist_gen",
                 // "--model_args", "WORD_AGG_SCHEME=None,NORM=None,pretrained=google/flan-t5-xl,PARALLELIZE=True",
                 // "--model_args", "WORD_AGG_SCHEME=None,NORM=None,pretrained=bigscience/T0_3B,PARALLELIZE=True",
-                "--model_args", "WORD_AGG_SCHEME=concat,NORM=None,pretrained=google/flan-t5-xl,PARALLELIZE=True",
+                "--model_args", "WORD_AGG_SCHEME=mean,NORM=None,pretrained=google/flan-t5-xl,PARALLELIZE=True",
                 "--tasks",
                 "hellaswag_dg",
                 "--num_fewshot",
