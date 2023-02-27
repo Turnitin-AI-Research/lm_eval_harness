@@ -202,15 +202,15 @@
             "args": [
                 "--model",
                 "dist_gen",
-                "--model_args", "WORD_AGG_SCHEME=last,NORM=layer,pretrained=EleutherAI/gpt-neo-1.3B",
+                "--model_args", "WORD_AGG_SCHEME=mean,NORM=None,pretrained=EleutherAI/gpt-j-6B,PARALLELIZE=True,ENCODING_LAYER=E",
                 "--tasks",
                 "hellaswag_dg",
                 "--num_fewshot",
                 "0",
                 "--device",
-                "cpu",
+                "0",
                 "--task_args",
-                "encoding_scheme=cross_encoding",
+                "encoding_scheme=sentence_level_segmentation",
                 // "--limit",
                 // "10",
                 "--no_cache"

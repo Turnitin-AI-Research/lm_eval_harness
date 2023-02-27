@@ -52,7 +52,7 @@ class HFLM(BaseLM):
                 else torch.device("cpu")
             )
         if self.PARALLELIZE:
-            assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
+            assert device in [0, '0', 'cuda:0'], 'Device ({device}) must be set to "0" with PARALLELIZE model-arg'
 
         # TODO: update this to be less of a hack once subfolder is fixed in HF
         try:

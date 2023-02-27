@@ -16,7 +16,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     pretrained = ['EleutherAI/gpt-j-6B']  # ['EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-    encoding_schemes = ['cross_encoding']  # ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
+    encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
     word_agg_schemes = ['mean']
@@ -51,7 +51,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
                 continue
 
         _args = [
-            "--device", ("cpu" if parallelize else "0"),
+            "--device", 0,
             "--output_dir", results_dir,
             # "--limit", "5",
             "--tasks", task,
