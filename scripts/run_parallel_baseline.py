@@ -16,7 +16,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
     task_models = [('hellaswag_dg', 'dist_gen')]
     encoding_scheme = 'cross_encoding'
-    pretrained = ['EleutherAI/gpt-j-6B']  # EleutherAI/gpt-j-6B, EleutherAI/gpt-neo-1.3B, bigscience/bloomz-7b1
+    pretrained = ['EleutherAI/gpt-neo-2.7B']  # EleutherAI/gpt-j-6B, EleutherAI/gpt-neo-1.3B, bigscience/bloomz-7b1
     parallelize = True
 
     @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
@@ -30,7 +30,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     for num_fewshot, (task, model), submodel in itertools.product(
             num_fewshots, task_models, pretrained):
         _args = [
-            "--device", "cpu" if parallelize else "0",
+            "--device", "0",
             "--output_dir", results_dir,
             # "--limit", "5",
             "--tasks", task,
