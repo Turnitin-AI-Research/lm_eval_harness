@@ -9,6 +9,7 @@ from torch import Tensor
 import transformers
 from transformers.activations import ACT2FN
 from lm_eval.tasks.dist_enc_tasks import SegmentedSample
+from lm_eval.models.dist_enc_utils import BaseModelType
 
 
 def get_logger(logger_name: str, logger_level: Union[int, str, None] = None) -> logging.Logger:
@@ -23,6 +24,9 @@ def get_logger(logger_name: str, logger_level: Union[int, str, None] = None) -> 
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
     return logger
+
+
+_LOGGER = get_logger(__name__)
 
 
 def str_to_bool(arg: Optional[str]) -> bool:
@@ -55,10 +59,6 @@ def normalize(norm, T: Tensor, *, dim: int = -1, eps=1e-6) -> Tensor:
         raise NotImplementedError
 
 
-
-_LOGGER = get_logger(__name__)
-
-
 class DistEncSimMixin:
     # WORD_AGG_SCHEME: str = None
     # SEGMENT_AGG_SCHEME: str = 'mean'
@@ -76,16 +76,17 @@ class DistEncSimMixin:
                  NORM: Optional[str] = None,
                  ENCODING_LAYER: Optional[str] = None,
                  OUT_ENCODING_LAYER: Optional[str] = None,
-                #  PARALLELIZE: Optional[str] = None,
+                 #  PARALLELIZE: Optional[str] = None,
                  ADD_POS: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.max_length: int
         self.device: torch.device
-        self.gpt2: transformers.PreTrainedModel
+        self.gpt2: BaseModelType
         self.tokenizer: transformers.PreTrainedTokenizer
         self.WORD_AGG_SCHEME: Optional[str] = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
-        self.OUT_WORD_AGG_SCHEME = self.WORD_AGG_SCHEME if OUT_WORD_AGG_SCHEME in [None, 'None'] else OUT_WORD_AGG_SCHEME
+        self.OUT_WORD_AGG_SCHEME = self.WORD_AGG_SCHEME if OUT_WORD_AGG_SCHEME in [
+            None, 'None'] else OUT_WORD_AGG_SCHEME
         self.SEGMENT_AGG_SCHEME: Optional[str] = SEGMENT_AGG_SCHEME if SEGMENT_AGG_SCHEME != 'None' else None
         self.EXAMPLE_AGG_SCHEME: Optional[str] = EXAMPLE_AGG_SCHEME if EXAMPLE_AGG_SCHEME != 'None' else None
         self.SIMILARITY_FUNC: Optional[str] = SIMILARITY_FUNC if SIMILARITY_FUNC != 'None' else None
@@ -108,13 +109,15 @@ class DistEncSimMixin:
         else:
             raise NotImplementedError(f"Don't know how to extract relu activation for model tuype {type(self.gpt2)}")
 
-        self.model = self.gpt2
+        self.model: BaseModelType = self.gpt2
         self.encoder = self.model.get_encoder() if self.is_enc_dec else self.model
+        self.decoder = self.model
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         if self.ADD_POS:
             assert not self.is_enc_dec  # T5 uses relative pos-encoding, therefore ADD_POS does not apply.
-            assert hasattr(self.gpt2, 'transformer') and hasattr(self.gpt2.transformer, 'wpe'), 'Could not find position embedding matrix'
+            assert hasattr(self.gpt2, 'transformer') and hasattr(
+                self.gpt2.transformer, 'wpe'), 'Could not find position embedding matrix'
             self.wpe = self.gpt2.transformer.wpe
         if (self.WORD_AGG_SCHEME is not None and 'w1mean' in self.WORD_AGG_SCHEME) or (
             self.OUT_WORD_AGG_SCHEME is not None and 'w1mean' in self.OUT_WORD_AGG_SCHEME
@@ -137,9 +140,9 @@ class DistEncSimMixin:
         return ENCODING_LAYER
 
     def _verify_out_encoding_layer(self, OUT_ENCODING_LAYER: Union[int, str, None]):
-         # A None config value always implies "revert to old behaviour before this config setting was introduced". In this case
-         # it implies OUT_ENCODING_LAYER = IN_ENCODING_LAYER because that's how it was with earlier runs. This enables comparison
-         # of old results with new ones.
+        # A None config value always implies "revert to old behaviour before this config setting was introduced". In this case
+        # it implies OUT_ENCODING_LAYER = IN_ENCODING_LAYER because that's how it was with earlier runs. This enables comparison
+        # of old results with new ones.
         if OUT_ENCODING_LAYER is None:
             OUT_ENCODING_LAYER = self.ENCODING_LAYER
         elif (OUT_ENCODING_LAYER not in ['OE']):
@@ -190,8 +193,80 @@ class DistEncSimMixin:
             attention aggregated (M)
         """
         dot_product = torch.matmul(Q, M.T)  # (Sq, Sm)
-        attention_weights = torch.nn.functional.softmax(dot_product, dim=0)  # (Sq, Sm)
+        attention_weights = torch.nn.functional.softmax(dot_product, dim=1)  # (Sq, Sm)
         return torch.matmul(attention_weights, M)  # (Sq, D)
+
+    @staticmethod
+    def _causal_linear_self_attention(S: Tensor) -> Tensor:
+        """
+        Causal linear attention layer.
+        :param S
+            embedding vectors of shape (Sq, D) where D is the vector size
+        :return Tensor[Sq, D]
+            attention aggregated embeddings
+        """
+        dot_product = torch.matmul(S, S.T)  # (Sq, Sq)
+        mask = torch.ones(dot_product.size()).to(torch.bool).tril()
+        dot_product = torch.where(mask, dot_product, -torch.inf)
+        attention_weights = torch.nn.functional.softmax(dot_product, dim=1)  # (Sq, Sq)
+        return torch.matmul(attention_weights, S)  # (Sq, D)
+
+    @staticmethod
+    def _encdec_linear_attention(Q: Tensor, M: Tensor):
+        """
+        Causal linear attention layer.
+        :param Q
+            decoder input vectors of shape (Sq, D) where D is the vector size. Causal self-attention
+            is applied on this sequence.
+        :param M
+            encoded memory vectors of shape (Sm, D) on which cross-attention is applied
+        :return Tensor[Sq, D]
+            cross & self attention aggregated embeddings
+        """
+        Sq, Sm = Q.shape[0], M.shape[0]
+        maskQ = torch.ones((Sq, Sq)).to(torch.bool).tril()  # (Sq, Sq)
+        maskM = torch.ones((Sq, Sm)).to(torch.bool)  # (Sq, Sm)
+        mask = torch.cat((maskM, maskQ), dim=1).to(Q.device)  # (Sq, Sm+Sq)
+        M2 = torch.cat((M, Q), dim=0)  # (Sm+Sq, D)
+        dot_product = torch.matmul(Q, M2.T)  # (Sq, Sm+Sq)
+        dot_product = torch.where(mask, dot_product, -torch.inf)  # (Sq, Sm+Sq)
+        attention_weights = torch.nn.functional.softmax(dot_product, dim=-1)  # (Sq, Sm+Sq)
+        return dict(attention_weights=attention_weights,
+                    # M2=M2, maskM=maskM, maskQ=maskQ, mask=mask,
+                    output=torch.matmul(attention_weights, M2)  # (Sq, D)
+                    )
+
+    @staticmethod
+    def _batch_encdec_linear_attention(Q: Tensor, M: Tensor, batchMaskQ: Tensor, batchMaskM: Tensor):
+        """
+        Causal linear attention layer.
+        :param Q
+            decoder input vectors of shape (N, Sq, D) where D is the vector size. Causal self-attention
+            is applied on this sequence.
+        :param batchMaskQ
+            batch mask for decoder input vectors of shape (N, Sq). value 1 implies True, 0 implies False
+        :param M
+            encoded memory vectors of shape (N, Sm, D) on which cross-attention is applied
+        :param batchMaskM
+            batch mask for encoded vectors of shape (N, Sm). value 1 implies True, 0 implies False
+        :return Tensor[N, Sq, D]
+            cross & self attention aggregated embeddings
+        """
+        N, Sq, Sm = Q.shape[0], Q.shape[1], M.shape[1]
+        maskQ = torch.ones((Sq, Sq)).tril().unsqueeze(0) * batchMaskQ.unsqueeze(1)  # (N, Sq, Sq)
+        maskM = torch.ones((1, Sq, Sm)) * batchMaskM.unsqueeze(1)  # (N, Sq, Sm)
+        memoryMask = torch.cat((maskM, maskQ), dim=-1).to(dtype=torch.bool, device=Q.device)  # (N, Sq, Sm+Sq)
+        M2 = torch.cat((M, Q), dim=1)  # (N, Sm+Sq, D)
+        dot_product = torch.matmul(Q, M2.permute(0, 2, 1))  # (N, Sq, Sm+Sq)
+        dot_product = torch.where(memoryMask, dot_product, -torch.inf)  # (N, Sq, Sm+Sq)
+        attention_weights = torch.nn.functional.softmax(dot_product, dim=-1)  # (N, Sq, Sm+Sq)
+        # zero out masked query positions - they'll show up as zero vectors in the output.
+        attention_weights = attention_weights * batchMaskQ.unsqueeze(-1)  # (N, Sq, Sm+Sq)
+        output = torch.matmul(attention_weights, M2)  # (N, Sq, D)
+        return dict(attention_weights=attention_weights,
+                    # M2=M2, maskM=maskM, maskQ=maskQ, memoryMask=memoryMask,
+                    output=output  # (N, Sq, D)
+                    )
 
     def tok_encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string, truncation=False, add_special_tokens=(self.is_enc_dec))
@@ -317,7 +392,8 @@ class DistEncSimMixin:
             # assert self.task.TASK_TYPE == 'gen'
             batch_size = concept_seqs.shape[0]
             seq_lens = model_input['seq_lens']
-            aggregated_vectors = torch.stack([vector for row, seq_len in enumerate(seq_lens) for vector in concept_seqs[row, :seq_len]])
+            aggregated_vectors = torch.stack([vector for row, seq_len in enumerate(seq_lens)
+                                             for vector in concept_seqs[row, :seq_len]])
         elif WORD_AGG_SCHEME.endswith('last'):
             aggregated_vectors = torch.stack([concept_seqs[row, seq_len - 1, :]
                                               for row, seq_len in enumerate(model_input['seq_lens'])])  # (batch, hidden_size)
@@ -336,7 +412,8 @@ class DistEncSimMixin:
             aggregated_vectors = self._normalize(aggregated_vectors)  # (batch, hidden_size)
         return aggregated_vectors  # (batch, hidden_size)
 
-    def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:  # (#strings, hidden_size)
+    # (#strings, hidden_size)
+    def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
         ENCODING_LAYER = self.ENCODING_LAYER if not is_output else self.OUT_ENCODING_LAYER
         token_embeddings = self.model.get_input_embeddings() if ENCODING_LAYER != 'OE' else self.out_token_embeddings
@@ -346,7 +423,8 @@ class DistEncSimMixin:
             input_shape = model_input['inputs_ids'].shape
             pos_ids = torch.new_zeros(input_shape[0], dtype=model_input['seq_lens'].dtype) + pos  # (#strings,)
             if sequential_pos:
-                pos_ids = pos_ids + torch.cat((torch.new_zeros(1, dtype=model_input['seq_lens'].dtype), model_input['seq_lens'][:-1]))
+                pos_ids = pos_ids + \
+                    torch.cat((torch.new_zeros(1, dtype=model_input['seq_lens'].dtype), model_input['seq_lens'][:-1]))
             pos_ids = pos_ids.to(device=device)  # (#strings,)
             pos_e = self.wpe(pos_ids)  # (#strings, hidden_size)
             if pos == 0:
@@ -357,10 +435,10 @@ class DistEncSimMixin:
                 pos = pos + model_input['seq_lens'].sum().item()
         if ENCODING_LAYER not in ['E', 'OE']:
             model_output = self.encoder(  # input_ids=model_input['input_ids'],
-                                        inputs_embeds=model_input['inputs_embeds'],
-                                        attention_mask=model_input['attention_mask'],
-                                        output_hidden_states=True,
-                                        return_dict=True)
+                inputs_embeds=model_input['inputs_embeds'],
+                attention_mask=model_input['attention_mask'],
+                output_hidden_states=True,
+                return_dict=True)
             # self._model.encoder(input_ids=input_ids, attention_mask=input_mask)['last_hidden_state']
         else:
             model_output = None
@@ -388,7 +466,8 @@ class DistEncSimMixin:
     def _embed_choices(self, sample: SegmentedSample, pos: Optional[int]) -> SegmentedSample:
         """Embed choices of an example"""
         assert 'choices' in sample
-        sample['choices_embeddings'], pos = self._embed_strings(sample['choices'], pos, sequential_pos=False, is_output=True)  # (#choices, hidden_size)
+        sample['choices_embeddings'], pos = self._embed_strings(
+            sample['choices'], pos, sequential_pos=False, is_output=True)  # (#choices, hidden_size)
         return sample
 
     def _embed_context(self, examples: List[SegmentedSample]) -> Tuple[Tensor, Optional[int]]:
@@ -463,8 +542,11 @@ class DistEncGenMixin(DistEncSimMixin):
     #     def __init__(self) -> None:
     #         super().__init__()
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, DECODING_SCHEME: Optional[str] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.DECODING_SCHEME = DECODING_SCHEME if DECODING_SCHEME != 'None' else None
+        if self.DECODING_SCHEME == 'parameterless_attention':
+            self.decoder = SoftClusteringDecoder(self.model)
 
     def verify_config(self):
         super().verify_config()
@@ -564,13 +646,14 @@ class DistEncGenMixin(DistEncSimMixin):
                         model_input = self._tok_batch_encode([ctx], strings2=[choice], shift_inp_right=True)
                         input_ids, inputs_embeds = model_input['input_ids'], None
                     else:
-                        model_input = self._input_embed_words(context_embeddings, [choice], pos=pos, shift_inp_right=True)
+                        model_input = self._input_embed_words(
+                            context_embeddings, [choice], pos=pos, shift_inp_right=True)
                         input_ids, inputs_embeds = None, model_input['inputs_embeds']
 
-                    model_output = self.model(input_ids=input_ids, inputs_embeds=inputs_embeds,
-                                              attention_mask=model_input['attention_mask'],
-                                              output_hidden_states=True,
-                                              return_dict=True)
+                    model_output = self.decoder(input_ids=input_ids, inputs_embeds=inputs_embeds,
+                                                attention_mask=model_input['attention_mask'],
+                                                output_hidden_states=True,
+                                                return_dict=True)
                     logprobs.append(
                         torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
                     )
@@ -620,27 +703,29 @@ class DistEncGenMixin(DistEncSimMixin):
                     assert self.OUT_ENCODING_LAYER is None
                     # TODO: If ctx == '' context_enc = [eot_token_id]. Line 193 in base.py
                     ctx = context[0]['segments'][0]
-                    ctx_ids = self.tokenizer(ctx, return_tensors='pt', add_special_tokens=True).input_ids.to(device=self.device)
+                    ctx_ids = self.tokenizer(ctx, return_tensors='pt',
+                                             add_special_tokens=True).input_ids.to(device=self.device)
                 else:
                     assert not self.ADD_POS
                     context_embeddings, pos = self._embed_context(context)  # (seq_len, hidden_size)
                 # Run each choice separately to avoid OOM with large models
                 for choice in doc['choices']:
-                    labels = self.tokenizer(choice, return_tensors='pt', add_special_tokens=False).input_ids.to(device=self.device)
+                    labels = self.tokenizer(choice, return_tensors='pt',
+                                            add_special_tokens=False).input_ids.to(device=self.device)
                     if doc.task.ENCODING_SCHEME == 'cross_encoding':
-                        model_output = self.model(input_ids=ctx_ids,
-                                                  labels=labels,
-                                                  output_hidden_states=True,
-                                                  return_dict=True)
+                        model_output = self.decoder(input_ids=ctx_ids,
+                                                    labels=labels,
+                                                    output_hidden_states=True,
+                                                    return_dict=True)
                     else:
                         # self._t5(encoder_outputs=(encoded_input,),
                         #            attention_mask=attention_mask,
                         #            labels=batch['labels'],
                         #            decoder_attention_mask=batch['decoder_attention_mask'])
-                        model_output = self.model(encoder_outputs=(context_embeddings.unsqueeze(0),),
-                                                  labels=labels,
-                                                  output_hidden_states=True,
-                                                  return_dict=True)
+                        model_output = self.decoder(encoder_outputs=(context_embeddings.unsqueeze(0),),
+                                                    labels=labels,
+                                                    output_hidden_states=True,
+                                                    return_dict=True)
                     logprobs.append(
                         torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
                     )
