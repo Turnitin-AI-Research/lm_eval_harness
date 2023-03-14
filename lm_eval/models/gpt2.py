@@ -185,14 +185,14 @@ class DistributedSim(DistEncSimMixin, HFLM):
         super().__init__(*args, **kwargs)
         self.verify_config()
 
-    @property
-    def max_length(self):
-        if self.is_enc_dec:
-            return MAX_MAX_LEN  # self.tokenizer.max_len_single_sentence
-        elif isinstance(self.gpt2, transformers.BloomForCausalLM):
-            return min(self.tokenizer.model_max_length, MAX_MAX_LEN)
-        else:
-            return super().max_length
+    # @property
+    # def max_length(self):
+    #     if self.is_enc_dec:
+    #         return MAX_MAX_LEN  # self.tokenizer.max_len_single_sentence
+    #     elif isinstance(self.gpt2, transformers.BloomForCausalLM):
+    #         return min(self.tokenizer.model_max_length, MAX_MAX_LEN)
+    #     else:
+    #         return super().max_length
 
 
 class DistributedGen(DistEncGenMixin, HFLM):
@@ -202,11 +202,11 @@ class DistributedGen(DistEncGenMixin, HFLM):
         super().__init__(*args, **kwargs)
         self.verify_config()
 
-    @property
-    def max_length(self):
-        if self.is_enc_dec:
-            return MAX_MAX_LEN  # self.tokenizer.max_len_single_sentence
-        elif isinstance(self.gpt2, transformers.BloomForCausalLM):
-            return min(self.tokenizer.model_max_length, MAX_MAX_LEN)
-        else:
-            return super().max_length
+    # @property
+    # def max_length(self):
+    #     if self.is_enc_dec:
+    #         return MAX_MAX_LEN  # self.tokenizer.max_len_single_sentence
+    #     elif isinstance(self.gpt2, transformers.BloomForCausalLM):
+    #         return min(self.tokenizer.model_max_length, MAX_MAX_LEN)
+    #     else:
+    #         return super().max_length

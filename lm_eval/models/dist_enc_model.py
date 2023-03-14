@@ -9,7 +9,7 @@ from torch import Tensor
 import transformers
 from transformers.activations import ACT2FN
 from lm_eval.tasks.dist_enc_tasks import SegmentedSample
-from lm_eval.models.dist_enc_utils import BaseModelType
+from lm_eval.models.dist_enc_utils import BaseModelType, ParameterlessAttentionDecoder, get_max_length
 
 
 def get_logger(logger_name: str, logger_level: Union[int, str, None] = None) -> logging.Logger:
@@ -80,7 +80,7 @@ class DistEncSimMixin:
                  ADD_POS: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.max_length: int
+        # self.max_length: int
         self.device: torch.device
         self.gpt2: BaseModelType
         self.tokenizer: transformers.PreTrainedTokenizer
@@ -109,9 +109,20 @@ class DistEncSimMixin:
         else:
             raise NotImplementedError(f"Don't know how to extract relu activation for model tuype {type(self.gpt2)}")
 
-        self.model: BaseModelType = self.gpt2
-        self.encoder = self.model.get_encoder() if self.is_enc_dec else self.model
-        self.decoder = self.model
+        self._model: BaseModelType = self.gpt2
+        self._model.eval()
+        if self.ENCODING_LAYER != 'E' and self.OUT_ENCODING_LAYER not in ['E', 'OE']:
+            self.encoder = self._model.get_encoder() if self.is_enc_dec else self._model
+        else:
+            self.encoder = None
+        self.decoder = self._model
+        self.input_embeddings = self._model.get_input_embeddings()
+        self._is_enc_dec = hasattr(self._model, 'get_encoder')
+        self._max_length = get_max_length(self._model, self.tokenizer)  # Saving max-len because we will delete self._model
+        if self.OUT_ENCODING_LAYER == 'OE':
+            oE = self._model.get_output_embeddings()
+            self.out_token_embeddings = torch.nn.Embedding(oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight)
+
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         if self.ADD_POS:
@@ -129,7 +140,11 @@ class DistEncSimMixin:
     @property
     def is_enc_dec(self) -> bool:
         """Return True if this is an encoder-decoder model like T5."""
-        return hasattr(self.model, 'get_encoder')
+        return self._is_enc_dec
+
+    @property
+    def max_length(self):
+        return self._max_length
 
     @classmethod
     def _verify_encoding_layer(cls, ENCODING_LAYER: Union[int, str, None]):
@@ -150,6 +165,8 @@ class DistEncSimMixin:
         return OUT_ENCODING_LAYER
 
     def verify_config(self):
+        del self._model  # we don't need self._model anymore.
+        del self.gpt2
         if self.WORD_AGG_SCHEME is not None:
             assert re.fullmatch(r'([-]?relu[+]?\|(zNorm[+]?\|)?)?((w1)?mean|last|concat)', self.WORD_AGG_SCHEME), (
                 f'Invlaid WORD_AGG_SCHEME {self.WORD_AGG_SCHEME}')
@@ -165,9 +182,6 @@ class DistEncSimMixin:
         # Which transformer hidden layer to pick encodings from. None => top layer
         self.ENCODING_LAYER = self._verify_encoding_layer(self.ENCODING_LAYER)
         self.OUT_ENCODING_LAYER = self._verify_out_encoding_layer(self.OUT_ENCODING_LAYER)
-        if self.OUT_ENCODING_LAYER == 'OE':
-            oE = self.model.get_output_embeddings()
-            self.out_token_embeddings = torch.nn.Embedding(oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight)
 
     def _should_truncate(self, seq: List, shift_inp_right: bool) -> bool:
         """Check if the sequence should be truncated"""
@@ -416,7 +430,7 @@ class DistEncSimMixin:
     def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
         ENCODING_LAYER = self.ENCODING_LAYER if not is_output else self.OUT_ENCODING_LAYER
-        token_embeddings = self.model.get_input_embeddings() if ENCODING_LAYER != 'OE' else self.out_token_embeddings
+        token_embeddings = self.input_embeddings if ENCODING_LAYER != 'OE' else self.out_token_embeddings
         model_input['inputs_embeds'] = token_embeddings(model_input['input_ids'])  # (#strings, padded_len, hidden_size)
         device = model_input['inputs_embeds'].device
         if self.ADD_POS:
@@ -442,7 +456,7 @@ class DistEncSimMixin:
             # self._model.encoder(input_ids=input_ids, attention_mask=input_mask)['last_hidden_state']
         else:
             model_output = None
-            # model_input['inputs_embeds'] = self.model.get_input_embeddings()(model_input['input_ids'])
+            # model_input['inputs_embeds'] = self.input_embeddings(model_input['input_ids'])
 
         WORD_AGG_SCHEME = self.OUT_WORD_AGG_SCHEME if is_output else self.WORD_AGG_SCHEME
         return self._reduce_word_sequences(model_output,
@@ -502,7 +516,6 @@ class DistEncSimMixin:
         """
         # Eschewing batching in favor of simplicity for now
         results = []
-        self.model.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 assert doc.task.ENCODING_SCHEME != 'cross_encoding', 'cross_encoding scheme is not support with this model_type'
@@ -531,22 +544,14 @@ class DistEncSimMixin:
 
 
 class DistEncGenMixin(DistEncSimMixin):
-    # class shortcut_model(torch.nn.Module):
-    #     # model_output = self.model(input_ids=input_ids, inputs_embeds=inputs_embeds,
-    #     #                             attention_mask=model_input['attention_mask'],
-    #     #                             output_hidden_states=True,
-    #     #                             return_dict=True)
-    #     # logprobs.append(
-    #     #     torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
-    #     # )
-    #     def __init__(self) -> None:
-    #         super().__init__()
-
     def __init__(self, *args, DECODING_SCHEME: Optional[str] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.DECODING_SCHEME = DECODING_SCHEME if DECODING_SCHEME != 'None' else None
         if self.DECODING_SCHEME == 'parameterless_attention':
-            self.decoder = SoftClusteringDecoder(self.model)
+            if self.ENCODING_LAYER == 'E':
+                print('TODO: Remove model from GPU in order to save memory')
+            self.decoder = ParameterlessAttentionDecoder(self._model)
+            self.decoder.eval()
 
     def verify_config(self):
         super().verify_config()
@@ -576,7 +581,7 @@ class DistEncGenMixin(DistEncSimMixin):
         seqs, seq2s, seq_lens = [], [], []
         for i, string in enumerate(strings):
             tok_seq = torch.tensor(self.tok_encode(string), dtype=torch.long, device=self.device)  # (seq_len,)
-            tok_emb = self.model.get_input_embeddings()(tok_seq)  # (seq_len, hidden_size)
+            tok_emb = self.input_embeddings(tok_seq)  # (seq_len, hidden_size)
             if self.ADD_POS and pos != 0:
                 tok_emb = tok_emb + self.wpe(tok_seq.new_full(tok_seq.shape, pos))
             assert 0 < len(tok_emb) < self.max_length
@@ -592,7 +597,7 @@ class DistEncGenMixin(DistEncSimMixin):
 
         batch_len = max(seq_lens)
         # pad
-        pad_embedding = self.model.get_input_embeddings()(torch.tensor(
+        pad_embedding = self.input_embeddings(torch.tensor(
             [self.tokenizer.pad_token_id], dtype=torch.long, device=self.device)).squeeze(0)
         seqs = [torch.cat([seq, pad_embedding.repeat(batch_len - len(seq), 1)]) if batch_len > len(seq) else seq
                 for seq in seqs]
@@ -622,7 +627,6 @@ class DistEncGenMixin(DistEncSimMixin):
         # Eschewing batching in favor of simplicity for now
         # self.verify_config()
         results = []
-        self.model.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 logprobs: List[Tensor] = []
@@ -688,7 +692,6 @@ class DistEncGenMixin(DistEncSimMixin):
         # self.verify_config()
         assert not self.ADD_POS
         results = []
-        self.model.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 logprobs: List[Tensor] = []

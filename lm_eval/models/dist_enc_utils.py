@@ -1,4 +1,5 @@
 from typing import Union, Optional, Tuple
+import collections
 import torch
 from torch import Tensor
 import transformers
@@ -12,6 +13,34 @@ BaseModelType = Union[transformers.GPT2LMHeadModel,
                       transformers.MT5ForConditionalGeneration,
                       transformers.T5ForConditionalGeneration,
                       ]
+TokenizerType = Union[transformers.PreTrainedTokenizer, transformers.PreTrainedTokenizerFast]
+
+
+class PropertyDict(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return self[name]
+
+    def __setattr__(self, name, value):
+        self[name] = value
+
+
+def get_max_length(model: BaseModelType,
+                   tokenizer: TokenizerType) -> int:
+    MAX_MAX_LEN = 10240
+    if isinstance(model, transformers.GPT2LMHeadModel):
+        return model.config.n_ctx
+    elif isinstance(model, (transformers.GPTNeoForCausalLM,
+                            transformers.GPTJForCausalLM,
+                            transformers.GPTNeoXForCausalLM)):
+        return model.config.max_position_embeddings
+    elif isinstance(model, (transformers.MT5ForConditionalGeneration,
+                            transformers.T5ForConditionalGeneration)):
+        return MAX_MAX_LEN  # self.tokenizer.max_len_single_sentence
+    elif isinstance(model, transformers.BloomForCausalLM):
+        return min(tokenizer.model_max_length, MAX_MAX_LEN)
 
 
 class ParameterlessAttentionDecoder(torch.nn.Module):
@@ -26,14 +55,13 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
         self._base_model = base_model
         self.num_layers = 1 if single_layer else self.num_decoder_layers(base_model)
         self._is_enc_dec = self.is_enc_dec(base_model)
-
-    @property
-    def input_embeddings(self):
-        return self._base_model.get_input_embeddings()
-
-    @property
-    def output_embeddings(self):
-        return self._base_model.get_output_embeddings()
+        self.input_embeddings = self._base_model.get_input_embeddings()
+        self.input_embeddings.requires_grad_(False)
+        self.output_embeddings = self._base_model.get_output_embeddings()
+        self.output_embeddings.requires_grad_(False)
+        if not isinstance(self._base_model, (transformers.MT5ForConditionalGeneration,
+                                             transformers.T5ForConditionalGeneration)):
+            del self._base_model
 
     @staticmethod
     def is_enc_dec(model: BaseModelType) -> bool:
@@ -95,11 +123,12 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
         att_out = self.soft_cluster(Q=Q, M=M, batchMaskQ=batchMaskQ, batchMaskM=batchMaskM)
         out_embeds: torch.FloatTensor = self.output_embeddings.weight  # type: ignore # (V, D)
         logits = torch.matmul(att_out['hidden'], out_embeds.T)  # (N, Sq, V)
-        return {'logits': logits,
-                'hidden_states': [att_out['hidden']],
-                'attention_weights': att_out['attention_weights']}
+        return PropertyDict({'logits': logits,
+                             #  'hidden_states': [att_out['hidden']],
+                             #  'attention_weights': att_out['attention_weights']
+                             })
 
-    @staticmethod
+    @ staticmethod
     def soft_cluster(*,
                      Q: torch.FloatTensor,
                      batchMaskQ: torch.LongTensor,
@@ -138,12 +167,12 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
         attention_weights = torch.nn.functional.softmax(dot_product, dim=-1)  # (N, Sq, Sm+Sq)
         attention_weights = attention_weights * batchMaskQ.unsqueeze(-1)  # (N, Sq, Sm+Sq)
         hidden = torch.matmul(attention_weights, M2)  # (N, Sq, D)
-        return dict(attention_weights=attention_weights,
-                    # M2=M2, maskM=maskM, maskQ=maskQ, maskMQ=maskMQ,
-                    hidden=hidden  # (N, Sq, D)
-                    )
+        return PropertyDict(attention_weights=attention_weights,
+                            # M2=M2, maskM=maskM, maskQ=maskQ, maskMQ=maskMQ,
+                            hidden=hidden  # (N, Sq, D)
+                            )
 
-    @staticmethod
+    @ staticmethod
     def _test_soft_cluster():
         """ Test soft-cluster function """
         D = 128
