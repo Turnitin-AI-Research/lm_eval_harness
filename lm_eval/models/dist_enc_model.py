@@ -545,13 +545,19 @@ class DistEncSimMixin:
 
 
 class DistEncGenMixin(DistEncSimMixin):
-    def __init__(self, *args, DECODING_SCHEME: Optional[str] = None, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, DECODING_SCHEME: Optional[str] = None, PARALLELIZE: Optional[str] = None, device, **kwargs) -> None:
+        if DECODING_SCHEME == 'parameterless_attention':
+            assert not PARALLELIZE
+            _device = 'cpu'
+        else:
+            _device = device
+        super().__init__(*args, PARALLELIZE=PARALLELIZE, device=_device, **kwargs)
         self.DECODING_SCHEME = DECODING_SCHEME if DECODING_SCHEME != 'None' else None
         if self.DECODING_SCHEME == 'parameterless_attention':
-            if self.ENCODING_LAYER == 'E':
-                print('TODO: Remove model from GPU in order to save memory')
-            self.decoder = ParameterlessAttentionDecoder(self._model)
+            if device not in ["cuda", "cpu"]:
+                device = int(device)
+            self._device = torch.device(device)
+            self.decoder = ParameterlessAttentionDecoder(self._model).to(device=self._device)
             self.decoder.eval()
 
     def verify_config(self):

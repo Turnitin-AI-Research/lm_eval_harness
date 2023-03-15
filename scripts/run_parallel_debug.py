@@ -14,7 +14,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str, limit: Opt
     results_dir = "lmeval_results_debug/"
     num_fewshots = [0, 5]
     task_models = [('hellaswag_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = ['EleutherAI/gpt-neo-2.7B']  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
+    pretrained = ['EleutherAI/gpt-J-6B']  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
     parallelize: bool = False
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['concat_all_examples']
