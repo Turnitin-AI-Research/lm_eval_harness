@@ -97,9 +97,10 @@ class HFLM(BaseLM):
                 transformers.GPT2TokenizerFast,
                 transformers.T5Tokenizer,
                 transformers.T5TokenizerFast,
-                transformers.BloomTokenizerFast
+                transformers.BloomTokenizerFast,
+                transformers.GPTNeoXTokenizerFast
             ),
-        ), "this tokenizer has not been checked for compatibility yet!"
+        ), f"this tokenizer ({type(self.tokenizer)}) has not been checked for compatibility yet!"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
