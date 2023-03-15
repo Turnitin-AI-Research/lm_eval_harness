@@ -56,9 +56,9 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
         self.num_layers = 1 if single_layer else self.num_decoder_layers(base_model)
         self._is_enc_dec = self.is_enc_dec(base_model)
         self.input_embeddings = self._base_model.get_input_embeddings()
-        self.input_embeddings.requires_grad_(False)
+        # self.input_embeddings.requires_grad_(False)
         self.output_embeddings = self._base_model.get_output_embeddings()
-        self.output_embeddings.requires_grad_(False)
+        # self.output_embeddings.requires_grad_(False)
         if not isinstance(self._base_model, (transformers.MT5ForConditionalGeneration,
                                              transformers.T5ForConditionalGeneration)):
             del self._base_model

@@ -118,7 +118,8 @@ class DistEncSimMixin:
         self.decoder = self._model
         self.input_embeddings = self._model.get_input_embeddings()
         self._is_enc_dec = hasattr(self._model, 'get_encoder')
-        self._max_length = get_max_length(self._model, self.tokenizer)  # Saving max-len because we will delete self._model
+        # Saving max-len because we will delete self._model
+        self._max_length = get_max_length(self._model, self.tokenizer)
         if self.OUT_ENCODING_LAYER == 'OE':
             oE = self._model.get_output_embeddings()
             self.out_token_embeddings = torch.nn.Embedding(oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight)
@@ -557,6 +558,7 @@ class DistEncGenMixin(DistEncSimMixin):
         super().verify_config()
         assert self.EXAMPLE_AGG_SCHEME in ['mean', None]
         assert self.SIMILARITY_FUNC is None
+        assert self.DECODING_SCHEME in ['parameterless_attention', None]
 
     def _embed_context(self, examples: List[SegmentedSample]) -> Tuple[Tensor, int]:
         """Embed a context (represented as a list of SegmentedSamples) into a sequence of embedding vectors"""
