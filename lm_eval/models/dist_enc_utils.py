@@ -123,7 +123,7 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
         att_out = self.soft_cluster(Q=Q, M=M, batchMaskQ=batchMaskQ, batchMaskM=batchMaskM)
         out_embeds: torch.FloatTensor = self.output_embeddings.weight  # type: ignore # (V, D)
         logits = torch.matmul(att_out['hidden'], out_embeds.T)  # (N, Sq, V)
-        return PropertyDict({'logits': logits,
+        return PropertyDict({'logits': logits.detach(),
                              #  'hidden_states': [att_out['hidden']],
                              #  'attention_weights': att_out['attention_weights']
                              })

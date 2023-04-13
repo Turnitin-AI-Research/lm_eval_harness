@@ -681,7 +681,7 @@ class DistEncGenMixin(DistEncSimMixin):
                     choice_seq = choice_seq.unsqueeze(-1)
                     choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
                     score_list.append(choice_lprobs.sum())
-                results.append({'scores': torch.stack(score_list), 'is_exact_match': is_exact_match})
+                results.append({'scores': torch.stack(score_list).to(device='cpu'), 'is_exact_match': is_exact_match})
 
         return results
 

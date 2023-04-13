@@ -13,13 +13,13 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     results_dir = "lmeval_results_gen/"
     num_fewshots = [0, 5]
     task_models = [('hellaswag_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = ['EleutherAI/gpt-j-6B']  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
+    pretrained = ['EleutherAI/gpt-neo-2.7B']  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
-    word_agg_schemes = ['w1mean', 'mean']
+    word_agg_schemes = ['mean']
     segment_agg_schemes = [None, 'mean']
     example_agg_schemes = [None, 'mean']
     norms = [None]
