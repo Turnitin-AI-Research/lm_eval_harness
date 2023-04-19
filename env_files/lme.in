@@ -1,12 +1,13 @@
--f https://download.pytorch.org/whl/cu116
+-f https://download.pytorch.org/whl/cu118
 # pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
+# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 datasets>=2.0.0
 click>=7.1
 scikit-learn>=0.24.1
-torch==1.12.*
-transformers>=4.20
-accelerate>=0.9.0
+torch==2.0
+transformers>=4.28
+accelerate>=0.18
 sqlitedict==1.6.0
 pytablewriter==0.58.0
 sacrebleu==1.5.0

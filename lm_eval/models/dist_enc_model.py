@@ -3,13 +3,16 @@ from typing import Dict, List, Optional, Union, Tuple
 import re
 import os
 import logging
+import gc
 from tqdm import tqdm
 import torch
 from torch import Tensor
+from torch.profiler import profile, record_function, ProfilerActivity
 import transformers
 from transformers.activations import ACT2FN
 from lm_eval.tasks.dist_enc_tasks import SegmentedSample
 from lm_eval.models.dist_enc_utils import BaseModelType, ParameterlessAttentionDecoder, get_max_length
+from lm_eval.models.dist_enc_utils import instrument, do_profile, trace_handler
 
 
 def get_logger(logger_name: str, logger_level: Union[int, str, None] = None) -> logging.Logger:
@@ -59,6 +62,20 @@ def normalize(norm, T: Tensor, *, dim: int = -1, eps=1e-6) -> Tensor:
         raise NotImplementedError
 
 
+class ModuleContainer(torch.Module):
+    """Container class to hold assorted layers. Needed for GPU memory management."""
+    def __init__(self) -> None:
+        super().__init__()
+        self.tokenizer: Optional[transformers.PreTrainedTokenizer] = None
+        self.gpt2: Optional[BaseModelType]
+        self._model: Optional[BaseModelType]
+        self.input_embeddings: Optional[torch.nn.Module] = None
+        self.out_token_embeddings: Optional[torch.nn.Module] = None
+        self.wpe: Optional[torch.nn.Module] = None  # Position Embeddings
+        self.agg_weights: Optional[torch.Tensor] = None
+        self.act: Optional[Any] = None
+
+
 class DistEncSimMixin:
     # WORD_AGG_SCHEME: str = None
     # SEGMENT_AGG_SCHEME: str = 'mean'
@@ -80,10 +97,7 @@ class DistEncSimMixin:
                  ADD_POS: Optional[str] = None,
                  **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        # self.max_length: int
-        self.device: torch.device
-        self.gpt2: BaseModelType
-        self.tokenizer: transformers.PreTrainedTokenizer
+        self._model = ModuleContainer()  # All the torch layers go here for GPU memory management
         self.WORD_AGG_SCHEME: Optional[str] = WORD_AGG_SCHEME if WORD_AGG_SCHEME != 'None' else None
         self.OUT_WORD_AGG_SCHEME = self.WORD_AGG_SCHEME if OUT_WORD_AGG_SCHEME in [
             None, 'None'] else OUT_WORD_AGG_SCHEME
@@ -94,11 +108,6 @@ class DistEncSimMixin:
         self.ENCODING_LAYER: Union[str, int, None] = ENCODING_LAYER if ENCODING_LAYER != 'None' else None
         self.OUT_ENCODING_LAYER: Union[str, int, None] = OUT_ENCODING_LAYER if OUT_ENCODING_LAYER != 'None' else None
         self.ADD_POS: bool = str_to_bool(ADD_POS)
-        # self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
-        # if self.PARALLELIZE:
-        #     assert self.device.type == 'cpu', 'Device type must be set to "cpu" with PARALLELIZE model-arg'
-        #     self.gpt2.parallelize()
-        #     self._device = 'cuda:0'
         # dense_act_fn
         if hasattr(self.gpt2.config, 'activation_function'):
             self.act = ACT2FN[self.gpt2.config.activation_function].to(device=self.device)
@@ -109,20 +118,20 @@ class DistEncSimMixin:
         else:
             raise NotImplementedError(f"Don't know how to extract relu activation for model tuype {type(self.gpt2)}")
 
-        self._model: BaseModelType = self.gpt2
+        self._model = self.gpt2
         self._model.eval()
+        self._is_enc_dec = hasattr(self._model, 'get_encoder')
         if self.ENCODING_LAYER != 'E' and self.OUT_ENCODING_LAYER not in ['E', 'OE']:
             self.encoder = self._model.get_encoder() if self.is_enc_dec else self._model
         else:
             self.encoder = None
         self.decoder = self._model
         self.input_embeddings = self._model.get_input_embeddings()
-        self._is_enc_dec = hasattr(self._model, 'get_encoder')
         # Saving max-len because we will delete self._model
         self._max_length = get_max_length(self._model, self.tokenizer)
         if self.OUT_ENCODING_LAYER == 'OE':
-            oE = self._model.get_output_embeddings()
-            self.out_token_embeddings = torch.nn.Embedding(oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight)
+            oE: Union[torch.nn.Embedding, torch.nn.Linear] = self._model.get_output_embeddings()
+            self.out_token_embeddings = torch.nn.Embedding(oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight.detach())
 
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -135,8 +144,26 @@ class DistEncSimMixin:
             self.OUT_WORD_AGG_SCHEME is not None and 'w1mean' in self.OUT_WORD_AGG_SCHEME
         ):
             self.agg_weights = torch.arange(1, self.max_length + 1, device=self.device).unsqueeze(0)  # (1, max_len)
-        else:
-            self.agg_weights = None
+
+    @property
+    def device(self):
+        return self._device
+
+    def to(self, device):
+        """Move all stored tensors to a target device"""
+        self._device = torch.device(device)
+        if self.gpt2:
+            self.gpt2 = self.gpt2.to(device=device)
+        if self._model:
+            self._model = self._model.to(device=device)
+        if self.input_embeddings:
+            self.input_embeddings = self.input_embeddings.to(device=device)
+        if self.out_token_embeddings:
+            self.out_token_embeddings = self.out_token_embeddings.to(device=device)
+        if self.wpe:
+            self.wpe = self.wpe.to(device=device)
+        if self.agg_weights:
+            self.agg_weights = self.agg_weights.to(device=device)
 
     @property
     def is_enc_dec(self) -> bool:
@@ -191,6 +218,7 @@ class DistEncSimMixin:
             print(f'Encountered overflow seq. Len = {len(seq)}')
         return ret_val
 
+    @instrument
     def _normalize(self, T: Tensor, *, dim: int = -1, eps=1e-6, norm=None) -> Tensor:
         """Compute Lp norm i.e., normalize the magnitude of vectors to 1."""
         norm = self.NORM if norm is None else norm
@@ -211,78 +239,7 @@ class DistEncSimMixin:
         attention_weights = torch.nn.functional.softmax(dot_product, dim=1)  # (Sq, Sm)
         return torch.matmul(attention_weights, M)  # (Sq, D)
 
-    @staticmethod
-    def _causal_linear_self_attention(S: Tensor) -> Tensor:
-        """
-        Causal linear attention layer.
-        :param S
-            embedding vectors of shape (Sq, D) where D is the vector size
-        :return Tensor[Sq, D]
-            attention aggregated embeddings
-        """
-        dot_product = torch.matmul(S, S.T)  # (Sq, Sq)
-        mask = torch.ones(dot_product.size()).to(torch.bool).tril()
-        dot_product = torch.where(mask, dot_product, -torch.inf)
-        attention_weights = torch.nn.functional.softmax(dot_product, dim=1)  # (Sq, Sq)
-        return torch.matmul(attention_weights, S)  # (Sq, D)
-
-    @staticmethod
-    def _encdec_linear_attention(Q: Tensor, M: Tensor):
-        """
-        Causal linear attention layer.
-        :param Q
-            decoder input vectors of shape (Sq, D) where D is the vector size. Causal self-attention
-            is applied on this sequence.
-        :param M
-            encoded memory vectors of shape (Sm, D) on which cross-attention is applied
-        :return Tensor[Sq, D]
-            cross & self attention aggregated embeddings
-        """
-        Sq, Sm = Q.shape[0], M.shape[0]
-        maskQ = torch.ones((Sq, Sq)).to(torch.bool).tril()  # (Sq, Sq)
-        maskM = torch.ones((Sq, Sm)).to(torch.bool)  # (Sq, Sm)
-        mask = torch.cat((maskM, maskQ), dim=1).to(Q.device)  # (Sq, Sm+Sq)
-        M2 = torch.cat((M, Q), dim=0)  # (Sm+Sq, D)
-        dot_product = torch.matmul(Q, M2.T)  # (Sq, Sm+Sq)
-        dot_product = torch.where(mask, dot_product, -torch.inf)  # (Sq, Sm+Sq)
-        attention_weights = torch.nn.functional.softmax(dot_product, dim=-1)  # (Sq, Sm+Sq)
-        return dict(attention_weights=attention_weights,
-                    # M2=M2, maskM=maskM, maskQ=maskQ, mask=mask,
-                    output=torch.matmul(attention_weights, M2)  # (Sq, D)
-                    )
-
-    @staticmethod
-    def _batch_encdec_linear_attention(Q: Tensor, M: Tensor, batchMaskQ: Tensor, batchMaskM: Tensor):
-        """
-        Causal linear attention layer.
-        :param Q
-            decoder input vectors of shape (N, Sq, D) where D is the vector size. Causal self-attention
-            is applied on this sequence.
-        :param batchMaskQ
-            batch mask for decoder input vectors of shape (N, Sq). value 1 implies True, 0 implies False
-        :param M
-            encoded memory vectors of shape (N, Sm, D) on which cross-attention is applied
-        :param batchMaskM
-            batch mask for encoded vectors of shape (N, Sm). value 1 implies True, 0 implies False
-        :return Tensor[N, Sq, D]
-            cross & self attention aggregated embeddings
-        """
-        N, Sq, Sm = Q.shape[0], Q.shape[1], M.shape[1]
-        maskQ = torch.ones((Sq, Sq)).tril().unsqueeze(0) * batchMaskQ.unsqueeze(1)  # (N, Sq, Sq)
-        maskM = torch.ones((1, Sq, Sm)) * batchMaskM.unsqueeze(1)  # (N, Sq, Sm)
-        memoryMask = torch.cat((maskM, maskQ), dim=-1).to(dtype=torch.bool, device=Q.device)  # (N, Sq, Sm+Sq)
-        M2 = torch.cat((M, Q), dim=1)  # (N, Sm+Sq, D)
-        dot_product = torch.matmul(Q, M2.permute(0, 2, 1))  # (N, Sq, Sm+Sq)
-        dot_product = torch.where(memoryMask, dot_product, -torch.inf)  # (N, Sq, Sm+Sq)
-        attention_weights = torch.nn.functional.softmax(dot_product, dim=-1)  # (N, Sq, Sm+Sq)
-        # zero out masked query positions - they'll show up as zero vectors in the output.
-        attention_weights = attention_weights * batchMaskQ.unsqueeze(-1)  # (N, Sq, Sm+Sq)
-        output = torch.matmul(attention_weights, M2)  # (N, Sq, D)
-        return dict(attention_weights=attention_weights,
-                    # M2=M2, maskM=maskM, maskQ=maskQ, memoryMask=memoryMask,
-                    output=output  # (N, Sq, D)
-                    )
-
+    @instrument
     def tok_encode(self, string: str) -> List[int]:
         return self.tokenizer.encode(string, truncation=False, add_special_tokens=(self.is_enc_dec))
         # return self.tokenizer.encode(string, truncation=False, add_special_tokens=False)
@@ -303,6 +260,7 @@ class DistEncSimMixin:
     #     batch['seq_lens'] = batch['attention_mask'].sum(dim=-1)  # (N,)
     #     return batch
 
+    @instrument
     def _tok_batch_encode(self, strings1: List[str], *, strings2: Optional[List[str]] = None, shift_inp_right: bool = False) -> Dict:
         seq1s = [self.tok_encode(string) for string in strings1]
         seqs, seq_lens = [], []
@@ -339,6 +297,7 @@ class DistEncSimMixin:
             retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
         return retdir
 
+    @instrument
     def _reduce_word_sequences(self,
                                model_output: Dict,
                                model_input: Dict,
@@ -370,6 +329,7 @@ class DistEncSimMixin:
             pass
         else:
             raise ValueError(f'Unsupported value "{ENCODING_LAYER}" for ENCODING_LAYER')
+
         if encoding_layer is not None:
             concept_seqs = model_output['hidden_states'][encoding_layer]  # (batch, padding-len, hidden_size)
         elif ENCODING_LAYER in ['E', 'OE']:
@@ -428,6 +388,7 @@ class DistEncSimMixin:
         return aggregated_vectors  # (batch, hidden_size)
 
     # (#strings, hidden_size)
+    @instrument
     def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
         ENCODING_LAYER = self.ENCODING_LAYER if not is_output else self.OUT_ENCODING_LAYER
@@ -463,8 +424,9 @@ class DistEncSimMixin:
         return self._reduce_word_sequences(model_output,
                                            model_input,
                                            ENCODING_LAYER,
-                                           WORD_AGG_SCHEME), pos  # (#strings, hidden_size)
+                                           WORD_AGG_SCHEME), pos  # (#strings, hidden_size) or (concatenated-strings len, hidden_size)
 
+    @instrument
     def _embed_segments(self, sample: SegmentedSample, pos: int) -> Tuple[SegmentedSample, int]:
         """Embed segments of an example"""
         assert 'segments' in sample
@@ -478,6 +440,7 @@ class DistEncSimMixin:
             raise NotImplementedError
         return sample, pos
 
+    @instrument
     def _embed_choices(self, sample: SegmentedSample, pos: Optional[int]) -> SegmentedSample:
         """Embed choices of an example"""
         assert 'choices' in sample
@@ -485,6 +448,7 @@ class DistEncSimMixin:
             sample['choices'], pos, sequential_pos=False, is_output=True)  # (#choices, hidden_size)
         return sample
 
+    @instrument
     def _embed_context(self, examples: List[SegmentedSample]) -> Tuple[Tensor, Optional[int]]:
         """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
         example_embeddings, pos = [], 0 if self.ADD_POS else None
@@ -517,6 +481,9 @@ class DistEncSimMixin:
         """
         # Eschewing batching in favor of simplicity for now
         results = []
+        self.decoder.eval()
+        if self.encoder:
+            self.encoder.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 assert doc.task.ENCODING_SCHEME != 'cross_encoding', 'cross_encoding scheme is not support with this model_type'
@@ -547,7 +514,7 @@ class DistEncSimMixin:
 class DistEncGenMixin(DistEncSimMixin):
     def __init__(self, *args, DECODING_SCHEME: Optional[str] = None, PARALLELIZE: Optional[str] = None, device, **kwargs) -> None:
         if DECODING_SCHEME == 'parameterless_attention':
-            assert not PARALLELIZE
+            assert not str_to_bool(PARALLELIZE)
             _device = 'cpu'
         else:
             _device = device
@@ -556,8 +523,10 @@ class DistEncGenMixin(DistEncSimMixin):
         if self.DECODING_SCHEME == 'parameterless_attention':
             if device not in ["cuda", "cpu"]:
                 device = int(device)
+            self.decoder = ParameterlessAttentionDecoder(self._model)
             self._device = torch.device(device)
-            self.decoder = ParameterlessAttentionDecoder(self._model).to(device=self._device)
+            # self.decoder = self.decoder.to(device=self._device)
+            self.to(device=device)
             self.decoder.eval()
 
     def verify_config(self):
@@ -566,6 +535,12 @@ class DistEncGenMixin(DistEncSimMixin):
         assert self.SIMILARITY_FUNC is None
         assert self.DECODING_SCHEME in ['parameterless_attention', None]
 
+    def to(self, device):
+        """Move all stored tensors to a target device"""
+        super().to(device)
+        self.decoder = self.decoder.to(device=device)
+
+    @instrument('_embed_context2')
     def _embed_context(self, examples: List[SegmentedSample]) -> Tuple[Tensor, int]:
         """Embed a context (represented as a list of SegmentedSamples) into a sequence of embedding vectors"""
         example_embeddings, pos = [], 0 if self.ADD_POS else None
@@ -581,6 +556,7 @@ class DistEncGenMixin(DistEncSimMixin):
             context_embeddings = example_embeddings
         return context_embeddings, pos  # (seq_len, hidden_size,)
 
+    @instrument
     def _input_embed_words(self, context_embeddings: Tensor, strings: List[str], *, pos: int, shift_inp_right: bool) -> Dict:
         """
         Encode and word-embed strings. Return embedding-sequence prepended with context embedding vectors.
@@ -619,7 +595,8 @@ class DistEncGenMixin(DistEncSimMixin):
         }
         return retdir
 
-    def distributed_encoding_generation(self, requests_args) -> List[Tensor]:
+    @do_profile
+    def distributed_encoding_generation(self, requests_args, prof: Optional[profile] = None) -> List[Tensor]:
         """Generate text by encoding context distributively.
 
         :param requests_args: list
@@ -635,8 +612,13 @@ class DistEncGenMixin(DistEncSimMixin):
         # Eschewing batching in favor of simplicity for now
         # self.verify_config()
         results = []
+        self.decoder.eval()
+        if self.encoder:
+            self.encoder.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
+                if prof is not None:
+                    prof.step()  # uncomment this along with @do_profile
                 logprobs: List[Tensor] = []
                 seq2s: List[Tensor] = []
                 seq_lens: List[Tensor] = []
@@ -649,6 +631,7 @@ class DistEncGenMixin(DistEncSimMixin):
                     assert self.OUT_ENCODING_LAYER is None
                     # TODO: If ctx == '' context_enc = [eot_token_id]. Line 193 in base.py
                     ctx = context[0]['segments'][0]
+                    context_embeddings = None
                 else:
                     context_embeddings, pos = self._embed_context(context)  # (seq_len, hidden_size)
                 # Run each choice separately to avoid OOM with large models
@@ -661,7 +644,6 @@ class DistEncGenMixin(DistEncSimMixin):
                         model_input = self._input_embed_words(
                             context_embeddings, [choice], pos=pos, shift_inp_right=True)
                         input_ids, inputs_embeds = None, model_input['inputs_embeds']
-
                     model_output = self.decoder(input_ids=input_ids, inputs_embeds=inputs_embeds,
                                                 attention_mask=model_input['attention_mask'],
                                                 output_hidden_states=True,
@@ -681,7 +663,10 @@ class DistEncGenMixin(DistEncSimMixin):
                     choice_seq = choice_seq.unsqueeze(-1)
                     choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
                     score_list.append(choice_lprobs.sum())
-                results.append({'scores': torch.stack(score_list).to(device='cpu'), 'is_exact_match': is_exact_match})
+                results.append({'scores': torch.stack(score_list).detach().to(
+                    device='cpu'), 'is_exact_match': is_exact_match})
+                torch.cuda.empty_cache()
+                # gc.collect()
 
         return results
 
@@ -700,6 +685,9 @@ class DistEncGenMixin(DistEncSimMixin):
         # self.verify_config()
         assert not self.ADD_POS
         results = []
+        self.decoder.eval()
+        if self.encoder:
+            self.encoder.eval()
         with torch.no_grad():
             for context, doc in tqdm(requests_args):
                 logprobs: List[Tensor] = []
