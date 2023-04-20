@@ -50,8 +50,8 @@ def dummy_decorator(nameOrfunc):
         return echo
 
 
-# instrument = dummy_decorator
-def instrument(nameOrfunc):
+instrument = dummy_decorator
+def _instrument(nameOrfunc):
     """Decorator that runs a func under record_function context"""
     name, func = None, None
 
@@ -69,12 +69,13 @@ def instrument(nameOrfunc):
         return decorator
 
 
-def do_profile(func):
+do_profile = dummy_decorator
+def _do_profile(func):
     """Decorator sets up pytorch profiling."""
     @wraps(func.__name__)
     def wrapper(*args, **kwargs):
         with profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU], record_shapes=True, profile_memory=True, with_stack=True,
-                     schedule=torch.profiler.schedule(wait=0, warmup=0, active=1000),
+                     schedule=torch.profiler.schedule(wait=0, warmup=0, active=100),
                      #  on_trace_ready=trace_handler
                      on_trace_ready=torch.profiler.tensorboard_trace_handler('./tb_log/1')
                      ) as prof:

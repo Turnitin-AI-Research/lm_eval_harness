@@ -3,7 +3,7 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 from main import main
 
 _args = [
-    "--device", "4",
+    "--device", "1",
     "--output_dir", "lmeval_results_debug/",
     # "--limit", "1000",
     "--tasks", 'hellaswag_dg',

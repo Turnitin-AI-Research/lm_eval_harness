@@ -13,4 +13,4 @@ lm_debug/
 *.out
 tb_log/
 trace_log/
-fil-result/
+fil-result?/
