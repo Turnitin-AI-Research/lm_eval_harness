@@ -11,9 +11,9 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN, cluster=cluster)
 
     results_dir = "lmeval_results_gen/"
-    num_fewshots = [0, 5]
+    num_fewshots = [5, 0]
     task_models = [('hellaswag_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = ['EleutherAI/gpt-neo-2.7B']  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
+    pretrained = ['EleutherAI/gpt-neo-1.3B']  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
@@ -37,6 +37,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
     def run_eval(args):
         os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+        os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
         from main import main
         return main(*args)
 

@@ -4,6 +4,9 @@ import itertools
 from main import main
 
 
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
+
 results_dir = "lmeval_results_t5/"
 num_fewshots = [5]
 task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]

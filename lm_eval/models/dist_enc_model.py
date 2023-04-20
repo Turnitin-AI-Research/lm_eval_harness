@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Union, Tuple
 import re
 import os
 import logging
-import gc
 import numpy as np
 from tqdm import tqdm
 import torch
@@ -130,7 +129,8 @@ class DistEncSimMixin:
         self.ADD_POS: bool = str_to_bool(ADD_POS)
 
         # Setup the torch layers
-        self.module = ModuleContainer(self.gpt2, self.tokenizer)  # All the torch layers go here for GPU memory management
+        # All the torch layers go here for GPU memory management
+        self.module = ModuleContainer(self.gpt2, self.tokenizer)
         del self.gpt2
         if hasattr(self.module.lm.config, 'activation_function'):
             self.module.act = ACT2FN[self.module.lm.config.activation_function]
@@ -138,16 +138,20 @@ class DistEncSimMixin:
             self.module.act = ACT2FN[self.module.lm.config.dense_act_fn]
         elif isinstance(self.module.lm, transformers.BloomForCausalLM):
             self.module.act = self.module.lm.transformer.h[0].mlp.gelu_impl
+        elif isinstance(self.module.lm, transformers.GPTNeoXPreTrainedModel):
+            self.module.act = ACT2FN[self.module.lm.config.hidden_act]
         else:
-            raise NotImplementedError(f"Don't know how to extract relu activation for model tuype {type(self.module.lm)}")
+            raise NotImplementedError(
+                f"Don't know how to extract relu activation for model tuype {type(self.module.lm)}")
 
         if self.ENCODING_LAYER != 'E' and self.OUT_ENCODING_LAYER not in ['E', 'OE']:
             self.module.encoder = self.module.lm.get_encoder() if self.is_enc_dec else self.module.lm
-        self.module.decoder = self.module.lm
+        # self.module.decoder = self.module.lm
         self.module.input_embeddings = self.module.lm.get_input_embeddings()
         if self.OUT_ENCODING_LAYER == 'OE':
             oE: torch.nn.Linear = self.module.lm.get_output_embeddings()
-            self.module.out_token_embeddings = torch.nn.Embedding(oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight.detach())
+            self.module.out_token_embeddings = torch.nn.Embedding(
+                oE.weight.shape[0], oE.weight.shape[1], _weight=oE.weight.detach())
 
         if self.module.tokenizer.pad_token is None:
             self.module.tokenizer.pad_token = self.module.tokenizer.eos_token
@@ -159,12 +163,12 @@ class DistEncSimMixin:
         if (self.WORD_AGG_SCHEME is not None and 'w1mean' in self.WORD_AGG_SCHEME) or (
             self.OUT_WORD_AGG_SCHEME is not None and 'w1mean' in self.OUT_WORD_AGG_SCHEME
         ):
-            self.module.agg_weights = torch.arange(1, self.max_length + 1, device=self.device).unsqueeze(0)  # (1, max_len)
+            self.module.agg_weights = torch.arange(
+                1, self.max_length + 1, device=self.device).unsqueeze(0)  # (1, max_len)
         if del_lm:
             del self.module.lm
         self.module.no_grad()
         torch.cuda.empty_cache()
-        # gc.collect()
 
     @property
     def device(self):
@@ -520,6 +524,8 @@ class DistEncGenMixin(DistEncSimMixin):
         if DECODING_SCHEME != 'parameterless_attention':
             super().__init__(*args, PARALLELIZE=PARALLELIZE, device=device, del_lm=False, **kwargs)
             self.DECODING_SCHEME = DECODING_SCHEME if DECODING_SCHEME != 'None' else None
+            self.module.decoder = self.module.lm
+            self.module.no_grad()
         else:
             assert not str_to_bool(PARALLELIZE)
             # Make HFLM load the model in RAM first because we're going to throw it away later and PyTorch won't release GPU memory.
@@ -535,7 +541,6 @@ class DistEncGenMixin(DistEncSimMixin):
             self.module.to(device=device)
             self.module.no_grad()
         torch.cuda.empty_cache()
-        # gc.collect()
 
     def verify_config(self):
         super().verify_config()
@@ -701,28 +706,28 @@ class DistEncGenMixin(DistEncSimMixin):
                     # TODO: If ctx == '' context_enc = [eot_token_id]. Line 193 in base.py
                     ctx = context[0]['segments'][0]
                     ctx_ids = self.module.tokenizer(ctx, return_tensors='pt',
-                                             add_special_tokens=True).input_ids.to(device=self.device)
+                                                    add_special_tokens=True).input_ids.to(device=self.device)
                 else:
                     assert not self.ADD_POS
                     context_embeddings, pos = self._embed_context(context)  # (seq_len, hidden_size)
                 # Run each choice separately to avoid OOM with large models
                 for choice in doc['choices']:
                     labels = self.module.tokenizer(choice, return_tensors='pt',
-                                            add_special_tokens=False).input_ids.to(device=self.device)
+                                                   add_special_tokens=False).input_ids.to(device=self.device)
                     if doc.task.ENCODING_SCHEME == 'cross_encoding':
                         model_output = self.module.decoder(input_ids=ctx_ids,
-                                                    labels=labels,
-                                                    output_hidden_states=True,
-                                                    return_dict=True)
+                                                           labels=labels,
+                                                           output_hidden_states=True,
+                                                           return_dict=True)
                     else:
                         # self._t5(encoder_outputs=(encoded_input,),
                         #            attention_mask=attention_mask,
                         #            labels=batch['labels'],
                         #            decoder_attention_mask=batch['decoder_attention_mask'])
                         model_output = self.module.decoder(encoder_outputs=(context_embeddings.unsqueeze(0),),
-                                                    labels=labels,
-                                                    output_hidden_states=True,
-                                                    return_dict=True)
+                                                           labels=labels,
+                                                           output_hidden_states=True,
+                                                           return_dict=True)
                     logprobs.append(
                         torch.nn.functional.log_softmax(model_output.logits, dim=-1).squeeze(0)  # (seq_len, vocab)
                     )
