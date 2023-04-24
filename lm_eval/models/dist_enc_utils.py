@@ -106,7 +106,7 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
 
     def __init__(self,
                  base_model: BaseModelType,
-                 single_layer: bool = True) -> None:
+                 single_layer: bool = False) -> None:
         super().__init__()
         self.num_layers = 1 if single_layer else self.num_decoder_layers(base_model)
         self._is_enc_dec = self.is_enc_dec(base_model)
@@ -142,6 +142,8 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
             return len(base_model.config.attention_layers)
         elif hasattr(base_model.config, 'num_decoder_layers'):
             return base_model.config.num_decoder_layers
+        elif hasattr(base_model.config, 'num_hidden_layers'):  # GPTNeoX
+            return base_model.config.num_hidden_layers
         else:
             raise NotImplementedError()
 
@@ -176,12 +178,16 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
             Q = self.input_embeddings(decoder_input_ids)  # type: ignore
             batchMaskQ = decoder_attention_mask
 
-        att_out = self.soft_cluster(Q=Q, M=M, batchMaskQ=batchMaskQ, batchMaskM=batchMaskM)
+        hidden_states, attention_weights = [Q], [None]
+        for _ in range(self.num_layers):
+            att_out = self.soft_cluster(Q=hidden_states[-1], M=M, batchMaskQ=batchMaskQ, batchMaskM=batchMaskM)
+            hidden_states.append(att_out.out)  # (N, Sq, D)
+            attention_weights.append(att_out.attention_weights)  # (N, Sq, Sm+Sq)
         out_embeds: torch.FloatTensor = self.output_embeddings.weight  # type: ignore # (V, D)
-        logits = torch.matmul(att_out['hidden'], out_embeds.T)  # (N, Sq, V)
+        logits = torch.matmul(hidden_states[-1], out_embeds.T)  # (N, Sq, V)
         return PropertyDict({'logits': logits,
-                             #  'hidden_states': [att_out['hidden']],
-                             #  'attention_weights': att_out['attention_weights']
+                             'hidden_states': hidden_states,
+                             'attention_weights': attention_weights
                              })
 
     @ staticmethod
@@ -223,10 +229,10 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
         dot_product = torch.where(maskMQ, dot_product, -torch.inf)  # (N, Sq, Sm+Sq)
         attention_weights = torch.nn.functional.softmax(dot_product, dim=-1)  # (N, Sq, Sm+Sq)
         attention_weights = attention_weights * batchMaskQ.unsqueeze(-1)  # (N, Sq, Sm+Sq)
-        hidden = torch.matmul(attention_weights, M2)  # (N, Sq, D)
+        out = torch.matmul(attention_weights, M2)  # (N, Sq, D)
         return PropertyDict(attention_weights=attention_weights,
                             # M2=M2, maskM=maskM, maskQ=maskQ, maskMQ=maskMQ,
-                            hidden=hidden  # (N, Sq, D)
+                            out=out  # (N, Sq, D)
                             )
 
     @ staticmethod
