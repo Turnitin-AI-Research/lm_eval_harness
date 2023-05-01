@@ -202,7 +202,35 @@
             "args": [
                 "--model",
                 "dist_gen",
-                "--model_args", "WORD_AGG_SCHEME=concat,NORM=None,pretrained=EleutherAI/gpt-neo-1.3B,PARALLELIZE=False,ENCODING_LAYER=E,DECODING_SCHEME=parameterless_attention",
+                "--model_args", "WORD_AGG_SCHEME=concat,pretrained=EleutherAI/gpt-neo-1.3B,ENCODING_LAYER=E",
+                "--tasks",
+                "hellaswag_dg",
+                "--num_fewshot",
+                "5",
+                "--device",
+                "3",
+                "--task_args",
+                "encoding_scheme=concat_all_examples",
+                // "--limit",
+                // "100",
+                "--no_cache"
+            ],
+            "cwd": "${workspaceFolder}",
+            // "env": {
+            //     "CUDA_LAUNCH_BLOCKING": "1"
+            // }
+        },
+        {
+            "name": "hellaswag_dg_parameterless",
+            "type": "python",
+            "request": "launch",
+            "program": "main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "args": [
+                "--model",
+                "dist_gen",
+                "--model_args", "WORD_AGG_SCHEME=concat,pretrained=EleutherAI/gpt-neo-1.3B,PARALLELIZE=False,ENCODING_LAYER=E,DECODING_SCHEME=parameterless_attention",
                 "--tasks",
                 "hellaswag_dg",
                 "--num_fewshot",
@@ -211,14 +239,15 @@
                 "0",
                 "--task_args",
                 "encoding_scheme=concat_all_examples",
-                "--limit",
-                "100",
+                // "--limit",
+                // "100",
                 "--no_cache"
             ],
             "cwd": "${workspaceFolder}",
-            // "env": {
-            //     "CUDA_LAUNCH_BLOCKING": "1"
-            // }
+            "env": {
+                "PYTORCH_NO_CUDA_MEMORY_CACHING": "1",
+                "CUDA_LAUNCH_BLOCKING": "1"
+            }
         },
         {
             "name": "hellaswag_dg_t5",

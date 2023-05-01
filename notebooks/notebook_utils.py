@@ -100,6 +100,8 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
     if take_last:
         groupby_cols = (model_cols | task_cols)
         def _take_last(_df: pd.DataFrame) -> pd.DataFrame:
+            if isinstance(_df, pd.Series):
+                raise ValueError
             _df = _df.sort_values(by='mtime', ascending=False)
             # return pd.Series({col: _df[col].dropna().iloc[0] if _df[col].dropna().shape[0] >=1 else None for col in _df.columns if col in metric_cols})
             metric_values = []
@@ -115,7 +117,7 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
                 metric_values.append(_task_metrics_sr)
             # rows = [_df[task_metric_cols[task]].dropna().iloc[0] for task in tasks]
             return pd.concat(metric_values)
-        df = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False).agg(_take_last).dropna(how='all')
+        df = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False, sort=False).apply(_take_last).dropna(how='all')
         df = df.reset_index(drop=False)
     else:
         df = df[list(selected_cols)].reset_index(drop=True)

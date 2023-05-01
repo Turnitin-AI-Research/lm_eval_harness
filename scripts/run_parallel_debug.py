@@ -39,6 +39,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str, limit: Opt
     @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
     def run_eval(args):
         os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+        os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
         from main import main
         return main(*args)
 
@@ -93,7 +94,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str, limit: Opt
     return responses
 
 
-def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False, NUM_GPUS_PER_RUN: int = 1, cluster: str = 'auto', limit: Optional[int] = None):
+def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False, NUM_GPUS_PER_RUN: int = 1, cluster: str = 'local', limit: Optional[int] = None):
     try:
         run(overwrite_results=overwrite_results, NUM_GPUS_PER_RUN=NUM_GPUS_PER_RUN, cluster=cluster, limit=limit)
     except Exception as e:

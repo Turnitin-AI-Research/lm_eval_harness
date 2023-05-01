@@ -1,7 +1,9 @@
 from typing import Union, Optional, Tuple
 import collections
+from functools import wraps
 import torch
 from torch import Tensor
+from torch.profiler import profile, record_function, ProfilerActivity
 import transformers
 
 
@@ -27,6 +29,60 @@ class PropertyDict(dict):
         self[name] = value
 
 
+def trace_handler(p):
+    """Called from Pytorch profiler, to print / save profile traces"""
+    print(p.key_averages().table(sort_by="cuda_memory_usage"))
+    print(p.key_averages(group_by_stack_n=5).table(sort_by="cuda_memory_usage"))
+    print(p.key_averages(group_by_input_shape=True).table(sort_by="cuda_memory_usage"))
+    print(p.key_averages(group_by_stack_n=5).table(sort_by="cuda_memory_usage", row_limit=10))
+    # print(p.key_averages(group_by_stack_n=5).table(sort_by="self_cpu_memory_usage"))
+    # print(p.key_averages(group_by_stack_n=5).table(sort_by="cpu_memory_usage"))
+    p.export_chrome_trace("./trace_log/pytorch_trace_" + str(p.step_num) + ".json")
+
+
+def dummy_decorator(nameOrfunc):
+    """Dummy decorator"""
+    def echo(func):
+        return func
+    if callable(nameOrfunc):
+        return nameOrfunc
+    else:
+        return echo
+
+
+instrument = dummy_decorator
+def _instrument(nameOrfunc):
+    """Decorator that runs a func under record_function context"""
+    name, func = None, None
+
+    def decorator(func):
+        @wraps(name or func.__name__)
+        def wrapper(*args, **kwargs):
+            with record_function(name or func.__name__):
+                return func(*args, **kwargs)
+        return wrapper
+    if callable(nameOrfunc):
+        func = nameOrfunc
+        return decorator(func)
+    else:
+        name = nameOrfunc
+        return decorator
+
+
+do_profile = dummy_decorator
+def _do_profile(func):
+    """Decorator sets up pytorch profiling."""
+    @wraps(func.__name__)
+    def wrapper(*args, **kwargs):
+        with profile(activities=[ProfilerActivity.CUDA, ProfilerActivity.CPU], record_shapes=True, profile_memory=True, with_stack=True,
+                     schedule=torch.profiler.schedule(wait=0, warmup=0, active=100),
+                     #  on_trace_ready=trace_handler
+                     on_trace_ready=torch.profiler.tensorboard_trace_handler('./tb_log/1')
+                     ) as prof:
+            return func(*args, **kwargs, prof=prof)
+    return wrapper
+
+
 def get_max_length(model: BaseModelType,
                    tokenizer: TokenizerType) -> int:
     MAX_MAX_LEN = 10240
@@ -50,18 +106,17 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
 
     def __init__(self,
                  base_model: BaseModelType,
-                 single_layer: bool = True) -> None:
+                 single_layer: bool = False) -> None:
         super().__init__()
-        self._base_model = base_model
         self.num_layers = 1 if single_layer else self.num_decoder_layers(base_model)
         self._is_enc_dec = self.is_enc_dec(base_model)
-        self.input_embeddings = self._base_model.get_input_embeddings()
+        self.input_embeddings = base_model.get_input_embeddings()
         # self.input_embeddings.requires_grad_(False)
-        self.output_embeddings = self._base_model.get_output_embeddings()
+        self.output_embeddings = base_model.get_output_embeddings()
         # self.output_embeddings.requires_grad_(False)
-        if not isinstance(self._base_model, (transformers.MT5ForConditionalGeneration,
-                                             transformers.T5ForConditionalGeneration)):
-            del self._base_model
+        if isinstance(base_model, (transformers.MT5ForConditionalGeneration,
+                                   transformers.T5ForConditionalGeneration)):
+            self._base_model = base_model
 
     @staticmethod
     def is_enc_dec(model: BaseModelType) -> bool:
@@ -87,9 +142,12 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
             return len(base_model.config.attention_layers)
         elif hasattr(base_model.config, 'num_decoder_layers'):
             return base_model.config.num_decoder_layers
+        elif hasattr(base_model.config, 'num_hidden_layers'):  # GPTNeoX
+            return base_model.config.num_hidden_layers
         else:
             raise NotImplementedError()
 
+    @instrument
     def forward(self, *,
                 input_ids: Optional[torch.LongTensor] = None,  # compatible with HF GPT like base_model
                 inputs_embeds: Optional[torch.FloatTensor] = None,  # compatible with HF GPT like base_model
@@ -120,15 +178,20 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
             Q = self.input_embeddings(decoder_input_ids)  # type: ignore
             batchMaskQ = decoder_attention_mask
 
-        att_out = self.soft_cluster(Q=Q, M=M, batchMaskQ=batchMaskQ, batchMaskM=batchMaskM)
+        hidden_states, attention_weights = [Q], [None]
+        for _ in range(self.num_layers):
+            att_out = self.soft_cluster(Q=hidden_states[-1], M=M, batchMaskQ=batchMaskQ, batchMaskM=batchMaskM)
+            hidden_states.append(att_out.out)  # (N, Sq, D)
+            attention_weights.append(att_out.attention_weights)  # (N, Sq, Sm+Sq)
         out_embeds: torch.FloatTensor = self.output_embeddings.weight  # type: ignore # (V, D)
-        logits = torch.matmul(att_out['hidden'], out_embeds.T)  # (N, Sq, V)
+        logits = torch.matmul(hidden_states[-1], out_embeds.T)  # (N, Sq, V)
         return PropertyDict({'logits': logits,
-                             #  'hidden_states': [att_out['hidden']],
-                             #  'attention_weights': att_out['attention_weights']
+                             'hidden_states': hidden_states,
+                             'attention_weights': attention_weights
                              })
 
     @ staticmethod
+    @instrument
     def soft_cluster(*,
                      Q: torch.FloatTensor,
                      batchMaskQ: torch.LongTensor,
@@ -166,10 +229,10 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
         dot_product = torch.where(maskMQ, dot_product, -torch.inf)  # (N, Sq, Sm+Sq)
         attention_weights = torch.nn.functional.softmax(dot_product, dim=-1)  # (N, Sq, Sm+Sq)
         attention_weights = attention_weights * batchMaskQ.unsqueeze(-1)  # (N, Sq, Sm+Sq)
-        hidden = torch.matmul(attention_weights, M2)  # (N, Sq, D)
+        out = torch.matmul(attention_weights, M2)  # (N, Sq, D)
         return PropertyDict(attention_weights=attention_weights,
                             # M2=M2, maskM=maskM, maskQ=maskQ, maskMQ=maskMQ,
-                            hidden=hidden  # (N, Sq, D)
+                            out=out  # (N, Sq, D)
                             )
 
     @ staticmethod
