@@ -11,3 +11,6 @@ lmeval_results*/
 .ipynb_checkpoints/
 lm_debug/
 *.out
+tb_log/
+trace_log/
+fil-result?/

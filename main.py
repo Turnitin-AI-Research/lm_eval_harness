@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 import fnmatch
 import hashlib
+import torch
 
 from lm_eval import tasks, evaluator
 
@@ -123,20 +124,6 @@ def main(*args):
     dumped = json.dumps(results, indent=2)
     print(dumped)
 
-    # if args.output_path:
-    #     fpath = args.output_path
-    # elif args.output_dir:
-    #     os.makedirs(args.output_dir, exist_ok=True)
-    #     model_args = args.model_args.replace("/", ":")
-    #     fname = (f"model={results['config']['model']}"
-    #              f"|tasks={','.join(task_names)}"
-    #              f"|model_args:{model_args}|task_args:{args.task_args}"
-    #              f"|num_fewshot={args.num_fewshot}|limit={args.limit}")
-    #     fname = hashlib.shake_128(bytes(fname, encoding='utf-8')).hexdigest(20)
-    #     fpath = f"{args.output_dir}/{fname}.json"
-    #     fpath = results_path(args, task_names)
-    # else:
-    #     fpath = None
     fpath = results_fpath(*orig_args)
     if fpath is not None:
         with open(fpath, "wt", encoding='utf-8') as f:

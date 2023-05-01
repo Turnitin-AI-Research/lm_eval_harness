@@ -1,5 +1,7 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
+
 from main import main
 
 _args = [
@@ -10,8 +12,8 @@ _args = [
     "--model", 'dist_gen',
     "--no_cache",
     '--num_fewshot', '5',
-    '--task_args', 'encoding_scheme=cross_encoding',
-    '--model_args', 'pretrained=EleutherAI/gpt-neo-1.3B'
+    '--task_args', 'encoding_scheme=concat_all_examples',
+    '--model_args', 'pretrained=EleutherAI/gpt-neox-20B,WORD_AGG_SCHEME=concat,ENCODING_LAYER=E,DECODING_SCHEME=parameterless_attention'
 ]
 
 fpath, results = main(*_args)

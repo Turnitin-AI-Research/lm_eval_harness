@@ -1,8 +1,8 @@
 """Task modifications for distributed encoding"""
-from typing import List, Optional, Type, Dict, Union
+from typing import List, Optional, Type, Dict, Tuple
 from collections import UserDict
 import re
-import torch
+import numpy as np
 import nltk
 from lm_eval.base import Task, rf
 from lm_eval.metrics import mean
@@ -285,21 +285,20 @@ class DistEncTaskMixin:
 
         # return lls
 
-    def process_results(self, doc: SegmentedSample, results: List[torch.Tensor]):
+    def process_results(self, doc: SegmentedSample, results: Tuple[Dict]):
         golds = doc["gold_indices"]
         # Framework adds yet another layer of aggregation on top of results. Unwind that.
         assert len(results) == 1
         results = results[0]
         scores = results['scores']
-        acc = 1.0 if torch.argmax(scores) in golds else 0.0
+        acc = 1.0 if np.argmax(scores) in golds else 0.0
         ret_dict = {
             "acc": acc,
             "rand_acc": 1. / len(scores)
         }
         if self.ENCODING_SCHEME == 'cross_encoding' or self.TASK_TYPE == 'gen':
-            choice_len = torch.tensor([len(choice) for choice in doc['choices']],
-                                      device=scores.device, dtype=torch.long)
-            acc_norm = 1.0 if torch.argmax(scores / choice_len) in golds else 0.0
+            choice_len = np.array([len(choice) for choice in doc['choices']])
+            acc_norm = 1.0 if np.argmax(scores / choice_len) in golds else 0.0
             ret_dict["acc_norm"] = acc_norm
         if 'is_exact_match' in results:
             ret_dict['em'] = 1.0 if any(results['is_exact_match'][idx] for idx in doc['gold_indices']) else 0.0
@@ -429,7 +428,7 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         out_doc['gold'] = None  # Indicates we have more than one possible targets
         return self._prepare_doc(out_doc)
 
-    def process_results(self, doc: SegmentedSample, results: List[torch.Tensor]):
+    def process_results(self, doc: SegmentedSample, results):
         """All choices in the test set are gold targets"""
         metrics = super().process_results(doc, results)
         # All choices are legitimate targets, therefore acc should be 1.0
