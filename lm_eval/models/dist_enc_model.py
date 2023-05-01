@@ -136,7 +136,7 @@ class DistEncSimMixin:
             self.module.act = ACT2FN[self.module.lm.config.activation_function]
         elif isinstance(self.module.lm, transformers.T5PreTrainedModel):  # T5
             self.module.act = ACT2FN[self.module.lm.config.dense_act_fn]
-        elif isinstance(self.module.lm, transformers.BloomForCausalLM):
+        elif isinstance(self.module.lm, transformers.BloomPreTrainedModel):
             self.module.act = self.module.lm.transformer.h[0].mlp.gelu_impl
         elif isinstance(self.module.lm, transformers.GPTNeoXPreTrainedModel):
             self.module.act = ACT2FN[self.module.lm.config.hidden_act]
