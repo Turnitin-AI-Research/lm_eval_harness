@@ -8,6 +8,7 @@ scikit-learn>=0.24.1
 torch==2.0
 transformers>=4.28
 accelerate>=0.18
+bitsandbytes
 
 # sqlitedict==1.6.0
 # pytablewriter==0.58.0

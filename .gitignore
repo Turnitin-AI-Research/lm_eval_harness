@@ -1,6 +1,5 @@
 env
 *.pyc
-data/
 lm_cache
 .cache/
 .idea

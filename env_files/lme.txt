@@ -27,7 +27,7 @@ aiosignal==1.3.1
     # via
     #   aiohttp
     #   ray
-astroid==2.15.3
+astroid==2.15.4
     # via pylint
 asttokens==2.2.1
     # via stack-data
@@ -45,6 +45,8 @@ autopep8==2.0.2
     # via -r lme.in
 backcall==0.2.0
     # via ipython
+bitsandbytes==0.38.1
+    # via -r lme.in
 blessed==1.20.0
     # via gpustat
 bleurt @ https://github.com/google-research/bleurt/archive/b610120347ef22b494b6d69b4316e303f5932516.zip
@@ -80,7 +82,7 @@ dataproperty==0.55.0
     # via
     #   pytablewriter
     #   tabledata
-datasets==2.11.0
+datasets==2.12.0
     # via -r lme.in
 debugpy==1.6.7
     # via ipykernel
@@ -119,7 +121,9 @@ frozenlist==1.3.3
     #   aiosignal
     #   ray
 fsspec[http]==2023.4.0
-    # via datasets
+    # via
+    #   datasets
+    #   huggingface-hub
 gast==0.4.0
     # via tensorflow
 google-api-core==2.11.0
@@ -137,14 +141,14 @@ googleapis-common-protos==1.59.0
     # via google-api-core
 gpustat==1.1
     # via ray
-grpcio==1.54.0
+grpcio==1.51.3
     # via
     #   ray
     #   tensorboard
     #   tensorflow
 h5py==3.8.0
     # via tensorflow
-huggingface-hub==0.13.4
+huggingface-hub==0.14.1
     # via
     #   datasets
     #   transformers
@@ -152,7 +156,7 @@ idna==3.4
     # via
     #   requests
     #   yarl
-importlib-metadata==6.5.0
+importlib-metadata==6.6.0
     # via
     #   jupyter-client
     #   markdown
@@ -160,7 +164,7 @@ iniconfig==2.0.0
     # via pytest
 ipykernel==6.22.0
     # via -r lme.in
-ipython==8.12.0
+ipython==8.13.1
     # via
     #   -r lme.in
     #   ipykernel
@@ -199,7 +203,7 @@ lazy-object-proxy==1.9.0
     # via astroid
 libclang==16.0.0
     # via tensorflow
-lit==16.0.1
+lit==16.0.2
     # via triton
 lm-dataformat==0.0.20
     # via -r lme.in
@@ -303,7 +307,7 @@ nvidia-nvtx-cu11==11.7.91
     # via torch
 oauthlib==3.2.2
     # via requests-oauthlib
-openai==0.27.4
+openai==0.27.6
     # via -r lme.in
 opencensus==0.11.2
     # via ray
@@ -324,7 +328,7 @@ packaging==23.1
     #   tensorflow
     #   transformers
     #   typepy
-pandas==2.0.0
+pandas==2.0.1
     # via
     #   bleurt
     #   datasets
@@ -336,7 +340,7 @@ pexpect==4.8.0
     # via ipython
 pickleshare==0.7.5
     # via ipython
-platformdirs==3.2.0
+platformdirs==3.5.0
     # via
     #   jupyter-core
     #   pylint
@@ -371,11 +375,11 @@ py-spy==0.3.14
     # via ray
 pyarrow==11.0.0
     # via datasets
-pyasn1==0.4.8
+pyasn1==0.5.0
     # via
     #   pyasn1-modules
     #   rsa
-pyasn1-modules==0.2.8
+pyasn1-modules==0.3.0
     # via google-auth
 pybind11==2.10.4
     # via -r lme.in
@@ -391,7 +395,7 @@ pydocstyle==6.3.0
     # via -r lme.in
 pygments==2.15.1
     # via ipython
-pylint==2.17.2
+pylint==2.17.3
     # via -r lme.in
 pyrsistent==0.19.3
     # via jsonschema
@@ -419,14 +423,14 @@ pyzmq==25.0.2
     # via
     #   ipykernel
     #   jupyter-client
-ray[default]==2.3.1
+ray[default]==2.4.0
     # via -r lme.in
 regex==2023.3.23
     # via
     #   nltk
     #   sacrebleu
     #   transformers
-requests==2.28.2
+requests==2.29.0
     # via
     #   datasets
     #   fsspec
@@ -499,7 +503,7 @@ tensorflow-estimator==2.12.0
     # via tensorflow
 tensorflow-io-gcs-filesystem==0.32.0
     # via tensorflow
-termcolor==2.2.0
+termcolor==2.3.0
     # via
     #   fire
     #   tensorflow
@@ -515,14 +519,14 @@ tomli==2.0.1
     #   mypy
     #   pylint
     #   pytest
-tomlkit==0.11.7
+tomlkit==0.11.8
     # via pylint
 torch==2.0.0
     # via
     #   -r lme.in
     #   accelerate
     #   triton
-tornado==6.3
+tornado==6.3.1
     # via
     #   ipykernel
     #   jupyter-client
@@ -578,7 +582,7 @@ wcwidth==0.2.6
     # via
     #   blessed
     #   prompt-toolkit
-werkzeug==2.2.3
+werkzeug==2.3.3
     # via tensorboard
 wheel==0.40.0
     # via
@@ -596,7 +600,7 @@ wrapt==1.14.1
     #   tensorflow
 xxhash==3.2.0
     # via datasets
-yarl==1.8.2
+yarl==1.9.2
     # via aiohttp
 zipp==3.15.0
     # via importlib-metadata

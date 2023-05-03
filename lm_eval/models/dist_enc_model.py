@@ -250,7 +250,6 @@ class DistEncSimMixin:
     @instrument
     def tok_encode(self, string: str) -> List[int]:
         return self.module.tokenizer.encode(string, truncation=False, add_special_tokens=(self.is_enc_dec))
-        # return self.module.tokenizer.encode(string, truncation=False, add_special_tokens=False)
 
     # def _tok_batch_encode_fast(self, strings: List[str]) -> Dict[str, Tensor]:
     #     # WARNING: August 2022: cannot rely on return_length=True because returned lengths are incorrect
@@ -713,7 +712,8 @@ class DistEncGenMixin(DistEncSimMixin):
                 # Run each choice separately to avoid OOM with large models
                 for choice in doc['choices']:
                     labels = self.module.tokenizer(choice, return_tensors='pt',
-                                                   add_special_tokens=False).input_ids.to(device=self.device)
+                                                   add_special_tokens=False  # Omit the trailing </s> token
+                                                   ).input_ids.to(device=self.device)
                     if doc.task.ENCODING_SCHEME == 'cross_encoding':
                         model_output = self.module.decoder(input_ids=ctx_ids,
                                                            labels=labels,
