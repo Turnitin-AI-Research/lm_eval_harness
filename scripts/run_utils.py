@@ -1,8 +1,20 @@
 """run script utils"""
 from typing import Optional
 import ray
+import pandas as pd
 import torch
 
+
+NUM_GPUS_BY_MODEL_SIZE = {
+    750: 1,   # 1x 11GB GPU
+    1500: 1,  # 1x 11GB GPU
+    2500: 1,  # 1x 11GB GPU
+    3500: 1,  # 1x 11GB GPU
+    6500: 2,  # 2x 11GB GPU
+    11500: 4,  # 4x 24GB GPUs
+    13000: 4,  # 4x 24GB GPUs
+    20000: 8,  # 8x 24GB GPUs
+}
 
 def ray_init(num_gpus_per_run: Optional[int] = None, cluster: str = 'local'):
     """Initialize or join ray cluster"""
@@ -19,3 +31,14 @@ def ray_init(num_gpus_per_run: Optional[int] = None, cluster: str = 'local'):
         # To view dashboard, forward local port to remote dashboard either using vscode or via ssh: ssh -L 8265:<head-node-ip>:8265 <head-node-ip>
         # ray.init(address='auto')
         ray.init(address='auto')
+
+
+def get_models(type: str, datadir='data', max_size: Optional[int] = None, min_size: Optional[int] = None):
+    """Get models from LM_List.parquet. Prune the list by type and size. Sort by size descending."""
+    lm_list_df = pd.read_parquet(f'{datadir}/LM_List.df.parquet')
+    df = lm_list_df[lm_list_df.training_type.str.contains(type)]
+    if max_size is not None:
+        df = df[df['size'] < max_size]
+    if min_size is not None:
+        df = df[df['size'] >= min_size]
+    return df.sort_values(by='size', ascending=False).to_dict('records')
