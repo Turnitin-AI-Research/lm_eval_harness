@@ -9,12 +9,10 @@ from main import results_fpath
 
 def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN, cluster=cluster)
-    # utils.ray_init(cluster=cluster)
-
     results_dir = "lmeval_results_sim_latest/"
-    num_fewshots = [0, 5]
+    num_fewshots = [5, 0]
     task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = ['EleutherAI/gpt-neo-2.7B']  # ['EleutherAI/gpt-neo-1.3B',]
+    pretrained = utils.get_models(arch_type='Decoder Only', max_size=11000)  # ['EleutherAI/gpt-neo-2.7B']  # ['EleutherAI/gpt-neo-1.3B',]
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
@@ -66,7 +64,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
         model_args = (f'WORD_AGG_SCHEME={word_agg_scheme},EXAMPLE_AGG_SCHEME={example_agg_scheme}'
                       + f',SEGMENT_AGG_SCHEME={segment_agg_scheme},NORM={norm},SIMILARITY_FUNC={sim_func},ENCODING_LAYER={encoding_layer}')
         if submodel is not None:
-            model_args = model_args + f',pretrained={submodel}'
+            model_args = model_args + f',pretrained={submodel["model_name"]}'
         if out_word_agg_scheme is not None:
             model_args = model_args + f',OUT_WORD_AGG_SCHEME={out_word_agg_scheme}'
         if out_encoding_layer is not None:
@@ -79,7 +77,13 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
         if (results_path is not None) and (not overwrite_results) and os.path.exists(results_path):
             print(f'Skipping config:\n{_args}')
         else:
-            future = run_eval.remote(_args)
+            # Call the ray remote function, passing it the number of gpus to use
+            if submodel is None:
+                num_gpus = NUM_GPUS_PER_RUN
+            else:
+                num_gpus = utils.NUM_GPUS_BY_MODEL_SIZE[submodel['size']]
+            future = run_eval.options(num_gpus=num_gpus).remote(_args)
+            # future = run_eval.remote(_args)
             futures.append(future)
 
     responses = ray.get(futures)

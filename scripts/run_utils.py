@@ -8,11 +8,11 @@ import torch
 NUM_GPUS_BY_MODEL_SIZE = {
     750: 1,   # 1x 11GB GPU
     1500: 1,  # 1x 11GB GPU
-    2500: 1,  # 1x 11GB GPU
-    3500: 1,  # 1x 11GB GPU
-    6500: 2,  # 2x 11GB GPU
-    11500: 5,  # 5x 24GB GPUs
-    13000: 8,  # 5x 24GB GPUs
+    2500: 2,  # 2x 11GB GPU
+    3500: 2,  # 2x 11GB GPU
+    6500: 3,  # 3x 11GB GPU
+    11500: 6,  # 6x 11GB GPUs
+    13000: 7,  # 7x 11GB GPUs
     20000: 8,  # 8x 24GB GPUs
 }
 
@@ -33,10 +33,18 @@ def ray_init(num_gpus_per_run: Optional[int] = None, cluster: str = 'local'):
         ray.init(address='auto')
 
 
-def get_models(type: str, datadir='data', max_size: Optional[int] = None, min_size: Optional[int] = None):
+def get_models(*,
+               arch_type: Optional[str] = None,
+               training_type: Optional[str] = None,
+               datadir='data',
+               max_size: Optional[int] = None,
+               min_size: Optional[int] = None):
     """Get models from LM_List.parquet. Prune the list by type and size. Sort by size descending."""
-    lm_list_df = pd.read_parquet(f'{datadir}/LM_List.df.parquet')
-    df = lm_list_df[lm_list_df.training_type.str.contains(type)]
+    df = pd.read_parquet(f'{datadir}/LM_List.df.parquet')
+    if arch_type is not None:
+        df = df[df.training_type.str.contains(arch_type)]
+    if training_type is not None:
+        df = df[df.training_type.str.contains(training_type)]
     if max_size is not None:
         df = df[df['size'] < max_size]
     if min_size is not None:
