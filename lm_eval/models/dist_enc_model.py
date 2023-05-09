@@ -128,7 +128,7 @@ class DistEncSimMixin:
         del self.gpt2
         if hasattr(self.module.lm.config, 'activation_function'):
             self.module.act = ACT2FN[self.module.lm.config.activation_function]
-        elif isinstance(self.module.lm, transformers.T5PreTrainedModel):  # T5
+        elif isinstance(self.module.lm, (transformers.T5PreTrainedModel, transformers.MT5PreTrainedModel)):  # T5, MT5
             self.module.act = ACT2FN[self.module.lm.config.dense_act_fn]
         elif isinstance(self.module.lm, transformers.BloomPreTrainedModel):
             self.module.act = self.module.lm.transformer.h[0].mlp.gelu_impl
@@ -377,10 +377,10 @@ class DistEncSimMixin:
         elif WORD_AGG_SCHEME.endswith('w1mean'):
             padded_len = model_input['attention_mask'].shape[1]
             agg_weights = (self.module.agg_weights[0, :padded_len] * model_input['attention_mask']).unsqueeze(-1)
-            aggregated_vectors = ((concept_seqs * agg_weights).sum(dim=1) / agg_weights.sum(dim=1))
+            aggregated_vectors = ((concept_seqs * agg_weights.to(device=concept_seqs.device)).sum(dim=1) / agg_weights.sum(dim=1))
         elif WORD_AGG_SCHEME.endswith('mean'):
-            aggregated_vectors = ((concept_seqs * model_input['attention_mask'].unsqueeze(-1)).sum(dim=1)
-                                  / model_input['seq_lens'].unsqueeze(-1))
+            aggregated_vectors = ((concept_seqs * model_input['attention_mask'].unsqueeze(-1).to(device=concept_seqs.device)).sum(dim=1)
+                                  / model_input['seq_lens'].unsqueeze(-1).to(device=concept_seqs.device))
         else:
             raise NotImplementedError
 
