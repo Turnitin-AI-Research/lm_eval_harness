@@ -95,12 +95,6 @@ class ModuleContainer(torch.nn.Module):
 
 
 class DistEncSimMixin:
-    # WORD_AGG_SCHEME: str = None
-    # SEGMENT_AGG_SCHEME: str = 'mean'
-    # EXAMPLE_AGG_SCHEME: str = 'mean'
-    # SIMILARITY_FUNC: str = None
-    # NORM: str = None
-
     def __init__(self,
                  *args,
                  WORD_AGG_SCHEME: Optional[str] = None,
@@ -144,7 +138,7 @@ class DistEncSimMixin:
             raise NotImplementedError(
                 f"Don't know how to extract relu activation for model tuype {type(self.module.lm)}")
 
-        if self.ENCODING_LAYER != 'E' and self.OUT_ENCODING_LAYER not in ['E', 'OE']:
+        if self.ENCODING_LAYER != 'E' or self.OUT_ENCODING_LAYER not in ['E', 'OE']:
             self.module.encoder = self.module.lm.get_encoder() if self.is_enc_dec else self.module.lm
         # self.module.decoder = self.module.lm
         self.module.input_embeddings = self.module.lm.get_input_embeddings()
@@ -195,7 +189,7 @@ class DistEncSimMixin:
     def _verify_out_encoding_layer(self, OUT_ENCODING_LAYER: Union[int, str, None]):
         # A None config value always implies "revert to old behaviour before this config setting was introduced". In this case
         # it implies OUT_ENCODING_LAYER = IN_ENCODING_LAYER because that's how it was with earlier runs. This enables comparison
-        # of old results with new ones.
+        # of new results with older ones.
         if OUT_ENCODING_LAYER is None:
             OUT_ENCODING_LAYER = self.ENCODING_LAYER
         elif (OUT_ENCODING_LAYER not in ['OE']):
@@ -399,10 +393,11 @@ class DistEncSimMixin:
     def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
         ENCODING_LAYER = self.ENCODING_LAYER if not is_output else self.OUT_ENCODING_LAYER
-        token_embeddings = self.module.input_embeddings if ENCODING_LAYER != 'OE' else self.out_token_embeddings
-        model_input['inputs_embeds'] = token_embeddings(model_input['input_ids'])  # (#strings, padded_len, hidden_size)
-        device = model_input['inputs_embeds'].device
+        token_embeddings = self.module.input_embeddings if ENCODING_LAYER != 'OE' else self.module.out_token_embeddings
+        model_input['inputs_embeds'] = token_embeddings(model_input['input_ids'].to(device=token_embeddings.weight.device)
+                                                        ).to(device=self.device)  # (#strings, padded_len, hidden_size)
         if self.ADD_POS:
+            device = model_input['inputs_embeds'].device
             input_shape = model_input['inputs_ids'].shape
             pos_ids = torch.new_zeros(input_shape[0], dtype=model_input['seq_lens'].dtype) + pos  # (#strings,)
             if sequential_pos:

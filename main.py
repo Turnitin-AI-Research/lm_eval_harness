@@ -99,7 +99,7 @@ def main(*args):
     else:
         task_names = pattern_match(args.tasks.split(","), tasks.ALL_TASKS)
 
-    print(f"Selected Tasks: {task_names}")
+    print(f"Selected Tasks: {task_names}, args: {args}")
 
     description_dict = {}
     if args.description_dict_path:

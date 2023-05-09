@@ -18,7 +18,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
-    word_agg_schemes = ['w1mean']
+    word_agg_schemes = ['w1mean', 'mean']
     segment_agg_schemes = ['mean', None]
     example_agg_schemes = [None, 'mean']
     norms = [None]
