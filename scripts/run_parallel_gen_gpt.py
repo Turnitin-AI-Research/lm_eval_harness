@@ -4,7 +4,6 @@ import itertools
 import ray
 import fire
 import scripts.run_utils as utils
-from main import results_fpath
 
 
 def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
