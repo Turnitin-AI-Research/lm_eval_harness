@@ -120,6 +120,11 @@ def run_parallel(*,
                     or (example_agg_scheme not in ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES)):
                 continue
 
+        if submodel is None:
+            num_gpus = NUM_GPUS_PER_RUN
+        else:
+            num_gpus = utils.num_gpus_by_model(submodel)
+
         _args = [
             "--device", 0,
             "--output_dir", results_dir,
@@ -138,7 +143,7 @@ def run_parallel(*,
             model_args = model_args + f',OUT_WORD_AGG_SCHEME={out_word_agg_scheme}'
         if out_encoding_layer is not None:
             model_args = model_args + f',OUT_ENCODING_LAYER={out_encoding_layer}'
-        if parallelize:
+        if parallelize and num_gpus > 1:
             model_args = model_args + ',PARALLELIZE=True'
         _args.extend(['--model_args', model_args])
 
@@ -147,10 +152,6 @@ def run_parallel(*,
             print(f'Skipping config:\n{_args}')
         else:
             # Call the ray remote function, passing it the number of gpus to use
-            if submodel is None:
-                num_gpus = NUM_GPUS_PER_RUN
-            else:
-                num_gpus = utils.num_gpus_by_model(submodel)
             future = run_eval.options(num_gpus=num_gpus).remote(_args)
             # future = run_eval.remote(_args)
             futures.append(future)

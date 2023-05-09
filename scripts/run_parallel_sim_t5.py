@@ -7,7 +7,7 @@ import scripts.run_utils as utils
 
 def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     results_dir = "lmeval_results_t5/"
-    num_fewshots = [0, 5]
+    num_fewshots = [5, 0]
     task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
     # ['google/flan-t5-xl']  # ['T0pp', 'flan-t5']
     pretrained = utils.get_models(arch_type='Encoder-Decoder', max_size=11000)
