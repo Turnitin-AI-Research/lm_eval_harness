@@ -149,22 +149,22 @@
             "justMyCode": false,
             "args": [
                 "--model", "dist_sim",
-                "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=None,SIMILARITY_FUNC=dot_product,pretrained=google/flan-t5-xl,PARALLELIZE=True",
+                "--model_args", "WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=None,SIMILARITY_FUNC=dot_product,pretrained=bigscience/mt0-xl,PARALLELIZE=True",
                 "--tasks",
                 "hellaswag_d",
                 "--num_fewshot",
-                "0",
-                "--device", "cpu",
+                "5",
+                "--device", "0",
                 "--task_args",
                 "encoding_scheme=sentence_level_segmentation",
-                "--limit",
-                "10",
+                // "--limit",
+                // "10",
                 "--no_cache"
             ],
             "cwd": "${workspaceFolder}",
-            // "env": {
-            //     "CUDA_LAUNCH_BLOCKING": "1"
-            // }
+            "env": {
+                "CUDA_VISIBLE_DEVICES": "0,1"
+            }
         },
         {
             "name": "hellaswag_d_bloomz3b",
@@ -265,13 +265,13 @@
                 "--tasks",
                 "hellaswag_dg",
                 "--num_fewshot",
-                "0",
+                "5",
                 "--device",
                 "cpu",
                 "--task_args",
                 "encoding_scheme=sentence_level_segmentation",
-                "--limit",
-                "10",
+                // "--limit",
+                // "10",
                 "--no_cache"
             ],
             "cwd": "${workspaceFolder}",
