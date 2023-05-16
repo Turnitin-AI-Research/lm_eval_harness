@@ -90,7 +90,8 @@ def run_parallel(*,
                  encoding_layers,
                  output_enclayer_and_aggschemes,
                  NUM_GPUS_PER_RUN,
-                 parallelize
+                 parallelize,
+                 device=0
                  ):
 
     utils.ray_init(cluster=cluster)
@@ -126,7 +127,7 @@ def run_parallel(*,
             num_gpus = utils.num_gpus_by_model(submodel)
 
         _args = [
-            "--device", 0,
+            "--device", device,
             "--output_dir", results_dir,
             # "--limit", "5",
             "--tasks", task,
