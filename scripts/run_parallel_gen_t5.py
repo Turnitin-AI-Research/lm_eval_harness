@@ -7,11 +7,9 @@ import scripts.run_utils as utils
 
 
 def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
-    utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN, cluster=cluster)
-
     results_dir = "lmeval_results_t5/"
     num_fewshots = [5, 0]
-    task_models = [('hellaswag_dg', 'dist_gen'), ('webqs_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
+    task_models = [('hellaswag_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
     pretrained = utils.get_models(arch_type='Encoder-Decoder', max_size=11000)
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
@@ -49,7 +47,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     return responses
 
 
-def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False, NUM_GPUS_PER_RUN: int = 1, cluster: str = 'auto'):
+def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False, NUM_GPUS_PER_RUN: int = 1, cluster: str = 'local'):
     try:
         run(overwrite_results=overwrite_results, NUM_GPUS_PER_RUN=NUM_GPUS_PER_RUN, cluster=cluster)
     except Exception as e:
