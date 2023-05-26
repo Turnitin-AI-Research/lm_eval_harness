@@ -9,6 +9,9 @@ torch==2.0
 transformers>=4.28
 accelerate>=0.18
 bitsandbytes
+# Protobuf should be <= 3.20.x otherwise google/mt5-* model's don't work.
+protobuf <= 3.20.*
+sentencepiece
 
 # sqlitedict==1.6.0
 # pytablewriter==0.58.0
@@ -47,7 +50,7 @@ bleurt@https://github.com/google-research/bleurt/archive/b610120347ef22b494b6d69
 pytest
 ray[default]
 
-# dev
+# dev / IDE
 pycodestyle
 mypy
 pydocstyle

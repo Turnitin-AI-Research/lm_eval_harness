@@ -128,9 +128,7 @@ class ParameterlessAttentionDecoder(torch.nn.Module):
                                 transformers.GPTNeoForCausalLM,
                                 transformers.GPTJForCausalLM,
                                 transformers.GPTNeoXForCausalLM,
-                                transformers.BloomForCausalLM,
-                                transformers.MT5ForConditionalGeneration,
-                                transformers.T5ForConditionalGeneration,
+                                transformers.BloomForCausalLM
                                 )):
             return False
         else:

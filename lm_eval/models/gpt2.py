@@ -65,11 +65,11 @@ class HFLM(BaseLM):
         except ValueError:
             self.gpt2 = transformers.AutoModelForSeq2SeqLM.from_pretrained(
                 pretrained,
-                # device_map='auto' if self.PARALLELIZE else None,
+                device_map='balanced' if self.PARALLELIZE else None,
                 cache_dir=cache_dir
             )
             if self.PARALLELIZE:
-                self.gpt2.parallelize()
+                # self.gpt2.parallelize()
                 self._device = 0
         if not self.PARALLELIZE:
             self.gpt2 = self.gpt2.to(self.device)
