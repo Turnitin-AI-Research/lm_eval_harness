@@ -97,6 +97,8 @@ distlib==0.3.6
     # via virtualenv
 dynet38==2.1
     # via nagisa
+einops==0.6.1
+    # via -r lme.in
 exceptiongroup==1.1.1
     # via pytest
 executing==1.2.0

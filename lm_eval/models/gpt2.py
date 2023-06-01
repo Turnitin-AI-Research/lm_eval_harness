@@ -60,13 +60,15 @@ class HFLM(BaseLM):
                 pretrained,
                 revision=revision + ("/" + subfolder if subfolder is not None else ""),
                 device_map='auto' if self.PARALLELIZE else None,
-                cache_dir=cache_dir
+                cache_dir=cache_dir,
+                trust_remote_code=True
             )
         except ValueError:
             self.gpt2 = transformers.AutoModelForSeq2SeqLM.from_pretrained(
                 pretrained,
                 device_map='balanced' if self.PARALLELIZE else None,
-                cache_dir=cache_dir
+                cache_dir=cache_dir,
+                trust_remote_code=True
             )
             if self.PARALLELIZE:
                 # self.gpt2.parallelize()

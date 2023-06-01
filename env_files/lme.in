@@ -12,6 +12,7 @@ bitsandbytes
 # Protobuf should be <= 3.20.x otherwise google/mt5-* model's don't work.
 protobuf <= 3.20.*
 sentencepiece
+einops
 
 # sqlitedict==1.6.0
 # pytablewriter==0.58.0
