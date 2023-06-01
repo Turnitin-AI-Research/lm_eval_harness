@@ -220,7 +220,7 @@ class DistEncSimMixin:
             print(f'Encountered overflow seq. Len = {len(seq)}')
         return ret_val
 
-    @instrument
+    # @instrument
     def _normalize(self, T: Tensor, *, dim: int = -1, eps=1e-6, norm=None) -> Tensor:
         """Compute Lp norm i.e., normalize the magnitude of vectors to 1."""
         norm = self.NORM if norm is None else norm
@@ -241,7 +241,7 @@ class DistEncSimMixin:
         attention_weights = torch.nn.functional.softmax(dot_product, dim=1)  # (Sq, Sm)
         return torch.matmul(attention_weights, M)  # (Sq, D)
 
-    @instrument
+    # @instrument
     def tok_encode(self, string: str) -> List[int]:
         return self.module.tokenizer.encode(string, truncation=False, add_special_tokens=(self.is_enc_dec))
 
@@ -261,7 +261,7 @@ class DistEncSimMixin:
     #     batch['seq_lens'] = batch['attention_mask'].sum(dim=-1)  # (N,)
     #     return batch
 
-    @instrument
+    # @instrument
     def _tok_batch_encode(self, strings1: List[str], *, strings2: Optional[List[str]] = None, shift_inp_right: bool = False) -> Dict:
         seq1s = [self.tok_encode(string) for string in strings1]
         seqs, seq_lens = [], []
@@ -298,7 +298,7 @@ class DistEncSimMixin:
             retdir['seq2s'] = [torch.tensor(seq, dtype=torch.long, device=self.device) for seq in seq2s]  # list of (t,)
         return retdir
 
-    @instrument
+    # @instrument
     def _reduce_word_sequences(self,
                                model_output: Dict,
                                model_input: Dict,
@@ -389,7 +389,7 @@ class DistEncSimMixin:
         return aggregated_vectors  # (batch, hidden_size)
 
     # (#strings, hidden_size)
-    @instrument
+    # @instrument
     def _embed_strings(self, strings: List[str], pos: int, sequential_pos: bool = True, is_output: bool = False) -> Tuple[Tensor, int]:
         model_input = self._tok_batch_encode(strings)  # (#strings, padded_len)
         ENCODING_LAYER = self.ENCODING_LAYER if not is_output else self.OUT_ENCODING_LAYER
@@ -428,7 +428,7 @@ class DistEncSimMixin:
                                            ENCODING_LAYER,
                                            WORD_AGG_SCHEME), pos  # (#strings, hidden_size) or (concatenated-strings len, hidden_size)
 
-    @instrument
+    # @instrument
     def _embed_segments(self, sample: SegmentedSample, pos: int) -> Tuple[Tensor, int]:
         """Embed segments of an example"""
         assert 'segments' in sample
@@ -442,7 +442,7 @@ class DistEncSimMixin:
             raise NotImplementedError
         return context_embeddings, pos
 
-    @instrument
+    # @instrument
     def _embed_choices(self, sample: SegmentedSample, pos: Optional[int]) -> Tensor:
         """Embed choices of an example"""
         assert 'choices' in sample
@@ -450,7 +450,7 @@ class DistEncSimMixin:
             sample['choices'], pos, sequential_pos=False, is_output=True)  # (#choices, hidden_size)
         return choices_embeddings
 
-    @instrument
+    # @instrument
     def _embed_context(self, examples: List[SegmentedSample]) -> Tuple[Tensor, Optional[int]]:
         """Embed a context (represented as a list of SegmentedSamples) into a single embedding vector"""
         example_embeddings, pos = [], 0 if self.ADD_POS else None
@@ -542,7 +542,7 @@ class DistEncGenMixin(DistEncSimMixin):
         assert self.SIMILARITY_FUNC is None
         assert self.DECODING_SCHEME in ['parameterless_attention', None]
 
-    @instrument('_embed_context2')
+    # @instrument('_embed_context2')
     def _embed_context(self, examples: List[SegmentedSample]) -> Tuple[Tensor, int]:
         """Embed a context (represented as a list of SegmentedSamples) into a sequence of embedding vectors"""
         example_embeddings, pos = [], 0 if self.ADD_POS else None
@@ -558,7 +558,7 @@ class DistEncGenMixin(DistEncSimMixin):
             context_embeddings = example_embeddings
         return context_embeddings, pos  # (seq_len, hidden_size,)
 
-    @instrument
+    # @instrument
     def _input_embed_words(self, context_embeddings: Tensor, strings: List[str], *, pos: int, shift_inp_right: bool) -> Dict:
         """
         Encode and word-embed strings. Return embedding-sequence prepended with context embedding vectors.
@@ -597,7 +597,7 @@ class DistEncGenMixin(DistEncSimMixin):
         }
         return retdir
 
-    @do_profile
+    # @do_profile
     def distributed_encoding_generation(self, requests_args, prof: Optional[profile] = None) -> List[Tensor]:
         """Generate text by encoding context distributively.
 
@@ -618,7 +618,7 @@ class DistEncGenMixin(DistEncSimMixin):
         with torch.no_grad():
             for doc_id, (context, doc) in tqdm(enumerate(requests_args), total=len(requests_args)):
                 if prof is not None:
-                    prof.step()  # uncomment this along with @do_profile
+                    prof.step()
                 logprobs: List[Tensor] = []
                 seq2s: List[Tensor] = []
                 seq_lens: List[Tensor] = []
