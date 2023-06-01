@@ -14,6 +14,7 @@ NUM_DEC_GPUS_BY_MODEL_SIZE = {
     2500: 2,  # 2x 11GB GPU
     3500: 2,  # 2x 11GB GPU
     6500: 4,  # 3x 11GB GPU
+    7500: 4,  # 3x 11GB GPU
     11500: 2,  # 2x 24GB GPUs
     13000: 3,  # 3x 24GB GPUs
     20000: 4,  # 4x 24GB GPUs
@@ -25,10 +26,12 @@ NUM_ENCDEC_GPUS_BY_MODEL_SIZE = {
     2500: 1,  # 1x 11GB GPU
     3500: 2,  # 2x 11GB GPU
     6500: 2,  # 3x 11GB GPU
+    7500: 2,  # 3x 11GB GPU
     11500: 2,  # 2x 24GB GPUs
     13000: 3,  # 3x 24GB GPUs
     20000: 4,  # 4x 24GB GPUs
 }
+
 
 def ray_init(num_gpus_per_run: Optional[int] = None, cluster: str = 'local'):
     """Initialize or join ray cluster"""

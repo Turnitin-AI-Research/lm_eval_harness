@@ -10,7 +10,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     results_dir = "lmeval_results_gen/"
     num_fewshots = [5, 0]
     task_models = [('hellaswag_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = utils.get_models(arch_type='Decoder Only', max_size=11000)  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
+    pretrained = utils.get_models(arch_type='Decoder Only', max_size=7000)  # [ 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-1.3B', 'EleutherAI/gpt-neox-20B']
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
