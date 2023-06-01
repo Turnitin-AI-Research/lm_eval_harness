@@ -22,7 +22,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
     def run_eval(args):
         os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-        os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
+        # os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
         from main import main
         return main(*args)
 

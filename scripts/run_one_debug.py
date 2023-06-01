@@ -1,6 +1,6 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
+# os.environ['PYTORCH_NO_CUDA_MEMORY_CACHING'] = '1'
 
 from main import main
 

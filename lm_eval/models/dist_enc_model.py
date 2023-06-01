@@ -162,7 +162,7 @@ class DistEncSimMixin:
         if del_lm:
             del self.module.lm
         self.module.no_grad()
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
     @property
     def device(self):
@@ -508,8 +508,8 @@ class DistEncSimMixin:
                     raise NotImplementedError
                 scores = torch.nn.functional.softmax(scores, dim=0).cpu().numpy()
                 results.append({'scores': scores})
-                if (doc_id % 100 == 0):
-                    torch.cuda.empty_cache()
+                # if (doc_id % 100 == 0):
+                #     torch.cuda.empty_cache()
         return results
 
 
@@ -534,7 +534,7 @@ class DistEncGenMixin(DistEncSimMixin):
             self._device = torch.device(device)
             self.module.to(device=device)
             self.module.no_grad()
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
 
     def verify_config(self):
         super().verify_config()
@@ -664,8 +664,8 @@ class DistEncGenMixin(DistEncSimMixin):
                     choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
                     score_list.append(choice_lprobs.sum().item())
                 results.append({'scores': np.array(score_list), 'is_exact_match': is_exact_match})
-                if (doc_id % 100 == 0):
-                    torch.cuda.empty_cache()
+                # if (doc_id % 100 == 0):
+                #     torch.cuda.empty_cache()
 
         return results
 
@@ -741,7 +741,7 @@ class DistEncGenMixin(DistEncSimMixin):
                     choice_lprobs = torch.gather(lp_slice, -1, choice_seq).squeeze()  # (choice_len,)
                     score_list.append(choice_lprobs.sum().item())
                 results.append({'scores': np.array(score_list), 'is_exact_match': is_exact_match})
-                if (doc_id % 100 == 0):
-                    torch.cuda.empty_cache()
+                # if (doc_id % 100 == 0):
+                #     torch.cuda.empty_cache()
 
         return results
