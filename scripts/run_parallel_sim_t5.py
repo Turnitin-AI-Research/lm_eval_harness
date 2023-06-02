@@ -10,7 +10,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     num_fewshots = [5, 0]
     task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
     # ['google/flan-t5-xl']  # ['T0pp', 'flan-t5']
-    pretrained = utils.get_models(arch_type='Encoder-Decoder', max_size=11000)
+    pretrained = utils.get_models(arch_type='Encoder-Decoder', max_size=13000)
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
     encoding_schemes = ['sentence_level_segmentation',
