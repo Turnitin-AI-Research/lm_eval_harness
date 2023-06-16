@@ -14,7 +14,7 @@ NUM_DEC_GPUS_BY_MODEL_SIZE = {
     2500: 2,  # 2x 11GB GPU
     3500: 2,  # 2x 11GB GPU
     6500: 4,  # 3x 11GB GPU
-    7500: 4,  # 3x 11GB GPU
+    7500: 4,  # 4x 11GB GPU
     11500: 8,  # 8x 11GB GPUs
     13000: 8,  # 8x 11GB GPUs
     20000: 4,  # 4x 24GB GPUs
@@ -27,7 +27,7 @@ NUM_ENCDEC_GPUS_BY_MODEL_SIZE = {
     3500: 2,  # 2x 11GB GPU
     6500: 2,  # 3x 11GB GPU
     7500: 2,  # 3x 11GB GPU
-    11500: 2,  # 2x 24GB GPUs
+    11500: 4,  # 4x 11GB GPUs
     13000: 3,  # 3x 24GB GPUs
     20000: 4,  # 4x 24GB GPUs
 }
