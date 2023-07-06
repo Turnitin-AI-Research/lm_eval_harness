@@ -82,7 +82,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
             if submodel is None:
                 num_gpus = NUM_GPUS_PER_RUN
             else:
-                num_gpus = utils.NUM_GPUS_BY_MODEL_SIZE[submodel['size']]
+                num_gpus = utils.NUM_GPUS_BY_MODEL_SIZE[submodel['model_size']]
             future = run_eval.options(num_gpus=num_gpus).remote(_args)
             # future = run_eval.remote(_args)
             futures.append(future)

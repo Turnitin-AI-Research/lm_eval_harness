@@ -63,20 +63,20 @@ def get_models(*,
     if training_type is not None:
         df = df[df.training_type.str.contains(training_type)]
     if max_size is not None:
-        df = df[df['size'] < max_size]
+        df = df[df['model_size'] < max_size]
     if min_size is not None:
-        df = df[df['size'] >= min_size]
+        df = df[df['model_size'] >= min_size]
     if exclude is not None:
         df = df[~df['model_name'].isin(exclude)]
-    return df.sort_values(by='size', ascending=False).to_dict('records')
+    return df.sort_values(by='model_size', ascending=False).to_dict('records')
 
 
 def num_gpus_by_model(model_desc: dict):
     """Get number of GPUs required for a model"""
     if 'Decoder Only' in model_desc['training_type']:
-        return NUM_DEC_GPUS_BY_MODEL_SIZE[model_desc['size']]
+        return NUM_DEC_GPUS_BY_MODEL_SIZE[model_desc['model_size']]
     else:
-        return NUM_ENCDEC_GPUS_BY_MODEL_SIZE[model_desc['size']]
+        return NUM_ENCDEC_GPUS_BY_MODEL_SIZE[model_desc['model_size']]
 
 
 def run_parallel(*,
