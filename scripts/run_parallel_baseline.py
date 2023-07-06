@@ -11,12 +11,14 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN, cluster=cluster)
 
     results_dir = "lmeval_results_baseline/"
-    num_fewshots = [0, 5]
+    num_fewshots = [5, 0]
     # ('hellaswag_d', 'dist_sim'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
     # [('hellaswag_dg', 'dist_gen'), ('hellaswag', 'gpt2'), ('webqs', 'gpt2')]
     task_models = [('hellaswag_dg', 'dist_gen')]
     encoding_scheme = 'cross_encoding'
-    pretrained = ['EleutherAI/gpt-neo-2.7B']  # EleutherAI/gpt-j-6B, EleutherAI/gpt-neo-1.3B, bigscience/bloomz-7b1
+    # EleutherAI/gpt-j-6B, EleutherAI/gpt-neo-1.3B, bigscience/bloomz-7b1
+    exclude_models = ['google/flan-t5-xl', 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-2.7B', 'google/flan-t5-xl', 'bigscience/bloomz-7b1']
+    pretrained = utils.get_models(max_size=13000, exclude=exclude_models)
     parallelize = True
 
     @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
@@ -40,7 +42,10 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
             '--num_fewshot', f'{num_fewshot}'
         ]
         if submodel is not None:
-            _args.extend(['--model_args', f'pretrained={submodel},PARALLELIZE={parallelize}'])
+            _args.extend(['--model_args', f'pretrained={submodel["model_name"]},PARALLELIZE={parallelize}'])
+            num_gpus = utils.num_gpus_by_model(submodel)
+        else:
+            num_gpus = NUM_GPUS_PER_RUN
         if encoding_scheme:
             _args.extend(['--task_args', f'encoding_scheme={encoding_scheme}'])
 
@@ -48,14 +53,11 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
         if (results_path is not None) and (not overwrite_results) and os.path.exists(results_path):
             print(f'Skipping config:\n{_args}')
         else:
-            future = run_eval.remote(_args)
+            print(f'Running config:\n{_args}')
+            future = run_eval.options(num_gpus=num_gpus).remote(_args)
             futures.append(future)
 
     responses = ray.get(futures)
-    # for resp in responses:
-    #     fpath, results = resp
-    #     with open(fpath, "wt", encoding='utf-8') as f:
-    #         json.dump(results, f, indent=2)
 
     print(responses)
     return responses

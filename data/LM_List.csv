@@ -1,5 +1,5 @@
 Training Type,Notes, 200 - 300 M,500 - 600 M,700 - 800 M,1 - 2 B,2 - 3 B,3 - 4 B,6 - 7B,7 - 8 B,11 - 12 B,13 B,20 B,60 - 70 B,170 - 180 B
-"Decoder Only, Pretrained",LM Pretrained Only,,,,,,,,,,,EleutherAI/gpt-neox-20B,,
+"Decoder Only, Pretrained",LM Pretrained Only,,,,EleutherAI/gpt-neo-1.3B,EleutherAI/gpt-neo-2.7B,,EleutherAI/gpt-j-6B,,,,EleutherAI/gpt-neox-20B,,
 ,,,,,,,,,,,,,,
 ,,,EleutherAI/pythia-410M-deduped,,,EleutherAI/pythia-2.8b-deduped,,EleutherAI/pythia-6.9b-deduped,,EleutherAI/pythia-12b-deduped,,,,
 ,,,,,EleutherAI/pythia-1b-deduped,,,,,,,,,

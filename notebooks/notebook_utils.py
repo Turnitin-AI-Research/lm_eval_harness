@@ -75,7 +75,36 @@ def read_results(dir: str) -> pd.DataFrame:
     df = df[[col for col in df.columns if col not in ['batch_size', 'device', 'no_cache', 'bootstrap_iters', 'description_dict']]]
     df = df[df.limit.isna()].assign(pretrained=df.pretrained.fillna('GPT2'))
     df = df.assign(model_type=df.model.map(lambda model: 'autoregressive' if model == 'gpt2' else (model))).drop(columns='model')
+    df = fix_args(df)
     return df
+
+
+def fix_args(df: pd.DataFrame) -> pd.DataFrame:
+    def fix_row(row):
+        if 'ENCODING_LAYER' in row and pd.isna(row.ENCODING_LAYER):
+            row.ENCODING_LAYER = '-1'
+        if 'OUT_WORD_AGG_SCHEME' in row and pd.isna(row.OUT_WORD_AGG_SCHEME):
+            row.OUT_WORD_AGG_SCHEME = row.WORD_AGG_SCHEME
+        if 'OUT_WORD_AGG_SCHEME' in row and pd.isna(row.OUT_ENCODING_LAYER):
+            row.OUT_ENCODING_LAYER = row.ENCODING_LAYER
+        return row
+    return df.apply(fix_row, axis='columns')  # type: ignore
+
+
+def drop_redundant_hellaswag_args(df: pd.DataFrame) -> pd.DataFrame:
+    "Merge redundant runs of hellaswag"
+    def fix_row(row):
+        if row.encoding_scheme == 'concat_all_examples':
+            row.SEGMENT_AGG_SCHEME = None
+            row.EXAMPLE_AGG_SCHEME = None
+        if row.encoding_scheme == 'concat_each_example':
+            row.SEGMENT_AGG_SCHEME = None
+            if row.num_fewshot == 0:
+                row.encoding_scheme = 'concat_all_examples'
+                row.EXAMPLE_AGG_SCHEME = None
+        return row
+    df = df.apply(fix_row, axis='columns')  # type: ignore
+    return df.drop_duplicates()
 
 
 def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], take_last=True) -> pd.DataFrame:

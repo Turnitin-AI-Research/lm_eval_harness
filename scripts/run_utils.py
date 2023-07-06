@@ -5,7 +5,6 @@ import itertools
 import ray
 import pandas as pd
 import torch
-import scripts.run_utils as utils
 from main import results_fpath
 
 NUM_DEC_GPUS_BY_MODEL_SIZE = {
@@ -55,7 +54,8 @@ def get_models(*,
                training_type: Optional[str] = None,
                datadir='data',
                max_size: Optional[int] = None,
-               min_size: Optional[int] = None):
+               min_size: Optional[int] = None,
+               exclude: Optional[list] = None):
     """Get models from LM_List.parquet. Prune the list by type and size. Sort by size descending."""
     df = pd.read_parquet(f'{datadir}/LM_List.df.parquet')
     if arch_type is not None:
@@ -66,6 +66,8 @@ def get_models(*,
         df = df[df['size'] < max_size]
     if min_size is not None:
         df = df[df['size'] >= min_size]
+    if exclude is not None:
+        df = df[~df['model_name'].isin(exclude)]
     return df.sort_values(by='size', ascending=False).to_dict('records')
 
 
@@ -97,11 +99,11 @@ def run_parallel(*,
                  device=0
                  ):
 
-    utils.ray_init(cluster=cluster)
+    ray_init(cluster=cluster)
 
     if 0 in num_fewshots:
-        ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples',
-                                             'segment_each_example', 'sentence_level_segmentation'}
+        ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {
+            'concat_all_examples', 'segment_each_example', 'sentence_level_segmentation'}
         ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES = {None}
         assert ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES & set(example_agg_schemes)
         assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
@@ -127,7 +129,7 @@ def run_parallel(*,
         if submodel is None:
             num_gpus = NUM_GPUS_PER_RUN
         else:
-            num_gpus = utils.num_gpus_by_model(submodel)
+            num_gpus = num_gpus_by_model(submodel)
 
         _args = [
             "--device", device,
