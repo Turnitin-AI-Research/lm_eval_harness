@@ -30,8 +30,6 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     if 0 in num_fewshots:
         ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples',
                                              'segment_each_example', 'sentence_level_segmentation'}
-        ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES = {None}
-        assert ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES & set(example_agg_schemes)
         assert ALLOWED_ZEROSHOT_ENCODING_SCHEMES & set(encoding_schemes)
 
     @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
@@ -55,8 +53,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
                 if encoding_scheme == 'concat_all_examples':
                     segment_agg_scheme = None
                     example_agg_scheme = None
-            if ((encoding_scheme not in ALLOWED_ZEROSHOT_ENCODING_SCHEMES)
-                    or (example_agg_scheme not in ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES)):
+            if encoding_scheme not in ALLOWED_ZEROSHOT_ENCODING_SCHEMES:
                 continue
         else:
             if task.startswith('hellaswag'):
