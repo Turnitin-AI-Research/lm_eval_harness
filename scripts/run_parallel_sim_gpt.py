@@ -10,23 +10,23 @@ from main import results_fpath
 def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     utils.ray_init(num_gpus_per_run=NUM_GPUS_PER_RUN, cluster=cluster)
     results_dir = "lmeval_results_sim_latest/"
-    num_fewshots = [5, 0]
+    num_fewshots = [0]
     task_models = [('hellaswag_d', 'dist_sim')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
     # utils.get_models(arch_type='Decoder Only', max_size=11000)  # ['EleutherAI/gpt-neo-2.7B']  # ['EleutherAI/gpt-neo-1.3B',]
     pretrained = ['EleutherAI/gpt-neo-2.7B', 'EleutherAI/pythia-2.8b-deduped']
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-    encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
+    encoding_schemes = ['sentence_level_segmentation', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
-    word_agg_schemes = ['w1mean', 'mean']
-    segment_agg_schemes = ['mean', None]
-    example_agg_schemes = [None, 'mean']
+    word_agg_schemes = ['w1mean']
+    segment_agg_schemes = [None]
+    example_agg_schemes = ['mean']
     norms = [None]
     sim_funcs = ['dot_product']
     # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-    encoding_layers = [None, -2, 'middle']  # ,23, 'E', 0, 'middle']
-    output_enclayer_and_aggschemes: list[tuple] = [(None, None), ('OE', 'mean')]  # [('OE', 'mean')]
+    encoding_layers = [None, 'middle']  # ,23, 'E', 0, 'middle']
+    output_enclayer_and_aggschemes: list[tuple] = [(None, None)]  # [('OE', 'mean')]
     if 0 in num_fewshots:
         ALLOWED_ZEROSHOT_ENCODING_SCHEMES = {'concat_all_examples',
                                              'segment_each_example', 'sentence_level_segmentation'}
