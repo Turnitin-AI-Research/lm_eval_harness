@@ -55,7 +55,8 @@ def get_models(*,
                datadir='data',
                max_size: Optional[int] = None,
                min_size: Optional[int] = None,
-               exclude: Optional[list] = None):
+               exclude: Optional[list] = None,
+               reverse_sort_by_size=True):
     """Get models from LM_List.parquet. Prune the list by type and size. Sort by size descending."""
     df = pd.read_parquet(f'{datadir}/LM_List.df.parquet')
     if arch_type is not None:
@@ -68,7 +69,7 @@ def get_models(*,
         df = df[df['model_size'] >= min_size]
     if exclude is not None:
         df = df[~df['model_name'].isin(exclude)]
-    return df.sort_values(by='model_size', ascending=False).to_dict('records')
+    return df.sort_values(by='model_size', ascending=(not reverse_sort_by_size)).to_dict('records')
 
 
 def num_gpus_by_model(model_desc: dict):
