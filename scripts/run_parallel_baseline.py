@@ -18,7 +18,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     encoding_scheme = 'cross_encoding'
     # EleutherAI/gpt-j-6B, EleutherAI/gpt-neo-1.3B, bigscience/bloomz-7b1
     exclude_models = ['google/flan-t5-xl', 'EleutherAI/gpt-j-6B', 'EleutherAI/gpt-neo-2.7B', 'google/flan-t5-xl', 'bigscience/bloomz-7b1']
-    pretrained = utils.get_models(max_size=13000, exclude=exclude_models)
+    pretrained = utils.get_models(max_size=8000, exclude=exclude_models)
     parallelize = True
 
     @ray.remote(max_calls=1, num_gpus=NUM_GPUS_PER_RUN)
@@ -63,7 +63,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     return responses
 
 
-def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False, NUM_GPUS_PER_RUN: int = 1, cluster: str = 'auto'):
+def run_wrapper(shutdown_at_exit: bool = False, overwrite_results: bool = False, NUM_GPUS_PER_RUN: int = 1, cluster: str = 'local'):
     try:
         run(overwrite_results=overwrite_results, NUM_GPUS_PER_RUN=NUM_GPUS_PER_RUN, cluster=cluster)
     except Exception as e:
