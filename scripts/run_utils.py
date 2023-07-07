@@ -16,7 +16,13 @@ NUM_DEC_GPUS_BY_MODEL_SIZE = {
     7500: 4,  # 4x 11GB GPU
     11500: 8,  # 8x 11GB GPUs
     13000: 8,  # 8x 11GB GPUs
-    20000: 4,  # 4x 24GB GPUs
+    # 2500: 1,  # 1x 24GB GPU
+    # 3500: 1,  # 1x 24GB GPU
+    # 6500: 2,  # 2x 24GB GPU
+    # 7500: 2,  # 2x 24GB GPU
+    # 11500: 3,  # 3x 24GB GPUs
+    # 13000: 3,  # 3x 24GB GPUs
+    20000: 5,  # 5x 24GB GPUs
 }
 NUM_GPUS_BY_MODEL_SIZE = NUM_DEC_GPUS_BY_MODEL_SIZE
 NUM_ENCDEC_GPUS_BY_MODEL_SIZE = {
@@ -27,8 +33,13 @@ NUM_ENCDEC_GPUS_BY_MODEL_SIZE = {
     6500: 2,  # 3x 11GB GPU
     7500: 2,  # 3x 11GB GPU
     11500: 6,  # 4x 11GB GPUs
+    # 2500: 1,  # 1x 24GB GPU
+    # 3500: 1,  # 1x 24GB GPU
+    # 6500: 2,  # 1x 24GB GPU
+    # 7500: 2,  # 3x 24GB GPU
+    # 11500: 3,  # 3x 24GB GPUs
     13000: 3,  # 3x 24GB GPUs
-    20000: 4,  # 4x 24GB GPUs
+    20000: 5,  # 4x 24GB GPUs
 }
 
 
@@ -40,7 +51,7 @@ def ray_init(num_gpus_per_run: Optional[int] = None, cluster: str = 'local'):
         NUM_GPUS = torch.cuda.device_count()
         MAX_PARALLEL_RUNS = NUM_GPUS // (num_gpus_per_run or 1)
         print(f'num_gpus_per_run={num_gpus_per_run}')
-        ray.init(address='local', num_cpus=MAX_PARALLEL_RUNS + 2)
+        ray.init(address='local', num_cpus=MAX_PARALLEL_RUNS * 2)
     else:
         # run "ray start --head --dashboard-host 0.0.0.0" from the repo root directory from within the venv lme.
         # If you to attach another machine to the cluster, then run "ray start --address=<head-node-ip>:6379" there.
