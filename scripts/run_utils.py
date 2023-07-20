@@ -138,6 +138,26 @@ def run_parallel(*,
                     or (example_agg_scheme not in ALLOWED_ZEROSHOT_EXAMPLE_AGG_SCHEMES)):
                 continue
 
+        # Remove unnecessary combinations to help reign in combinatorial explosion
+        if num_fewshot == 0:
+            if task.startswith('hellaswag'):
+                if encoding_scheme in ['concat_each_example', 'segment_each_example']:
+                    encoding_scheme = 'concat_all_examples'
+                if encoding_scheme == 'concat_all_examples':
+                    segment_agg_scheme = None
+                    example_agg_scheme = None
+            if encoding_scheme not in ALLOWED_ZEROSHOT_ENCODING_SCHEMES:
+                continue
+        else:
+            if task.startswith('hellaswag'):
+                if encoding_scheme in ['segment_each_example']:
+                    encoding_scheme = 'concat_each_example'
+                if encoding_scheme == 'concat_all_examples':
+                    segment_agg_scheme = None
+                    example_agg_scheme = None
+                elif encoding_scheme == 'concat_each_example':
+                    segment_agg_scheme = None
+
         if submodel is None:
             num_gpus = NUM_GPUS_PER_RUN
         else:

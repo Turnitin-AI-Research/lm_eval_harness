@@ -10,10 +10,10 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     results_dir = "lmeval_results_t5/"
     num_fewshots = [5, 0]
     task_models = [('hellaswag_dg', 'dist_gen')]  # ('hellaswag_d', 'dist_sim'), ('webqs_dg', 'dist_gen')]
-    pretrained = utils.get_models(arch_type='Encoder-Decoder', max_size=14000)
+    pretrained = [m for m in utils.get_models(arch_type='Encoder-Decoder', max_size=14000) if m['model_name'] in ['google/flan-t5-xxl']]
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-    encoding_schemes = ['sentence_level_segmentation', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
+    encoding_schemes = ['sentence_level_segmentation', 'concat_each_example', 'concat_all_examples']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
     word_agg_schemes = ['mean']
@@ -22,7 +22,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     norms = [None]
     sim_funcs = [None]  # ['dot_product', 'cosine_sim']
     # ['middle', None, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-    encoding_layers = [None, 'E']  # , 'E', 0, 'middle']
+    encoding_layers = [None]  # , 'E', 0, 'middle']
     output_enclayer_and_aggschemes: list[tuple] = [(None, None)]  # [('OE', 'mean')]
 
     responses = utils.run_parallel(

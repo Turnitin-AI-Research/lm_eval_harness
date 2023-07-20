@@ -733,6 +733,7 @@ class DistEncGenMixin(DistEncSimMixin):
                 for i, choice_seq in enumerate(seq2s):
                     # seq_len = seq_lens[i].item()
                     lp_slice = logprobs[i]  # (choice_len, vocab)
+                    choice_seq = choice_seq.to(device=lp_slice.device)
                     is_em = (choice_seq == lp_slice.argmax(dim=-1)).all().item()
                     _LOGGER.debug(f"choice = {doc['choices'][i]}\n"
                                   f"pred = {self.module.tokenizer.decode(lp_slice.argmax(dim=-1))}")
