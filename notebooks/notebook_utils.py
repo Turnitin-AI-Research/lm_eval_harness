@@ -97,11 +97,19 @@ def drop_redundant_hellaswag_args(df: pd.DataFrame) -> pd.DataFrame:
         if row.encoding_scheme == 'concat_all_examples':
             row.SEGMENT_AGG_SCHEME = None
             row.EXAMPLE_AGG_SCHEME = None
-        if row.encoding_scheme == 'concat_each_example':
+        elif row.encoding_scheme == 'concat_each_example':
             row.SEGMENT_AGG_SCHEME = None
             if row.num_fewshot == 0:
                 row.encoding_scheme = 'concat_all_examples'
                 row.EXAMPLE_AGG_SCHEME = None
+        elif row.encoding_scheme == 'sentence_level_segmentation':
+            if row.num_fewshot == 0:
+                row.EXAMPLE_AGG_SCHEME = None
+        elif row.encoding_scheme == 'segment_each_example':
+            if row.num_fewshot == 0:
+                row.encoding_scheme = 'concat_all_examples'
+                row.EXAMPLE_AGG_SCHEME = None
+                row.SEGMENT_AGG_SCHEME = None
         return row
     df = df.apply(fix_row, axis='columns')  # type: ignore
     return df.drop_duplicates()
