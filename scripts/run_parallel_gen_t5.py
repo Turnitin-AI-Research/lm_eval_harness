@@ -13,7 +13,7 @@ def run(overwrite_results: bool, NUM_GPUS_PER_RUN: int, cluster: str):
     pretrained = [m for m in utils.get_models(arch_type='Encoder-Decoder', max_size=14000) if m['model_name'] in ['google/flan-t5-xxl']]
     parallelize: bool = True
     # ['merge_all_segments', 'segment_each_example', 'concat_each_example', 'concat_all_examples']
-    encoding_schemes = ['sentence_level_segmentation', 'concat_each_example', 'concat_all_examples']
+    encoding_schemes = ['sentence_level_segmentation', 'concat_each_example', 'concat_all_examples', 'segment_each_example']
     # ['-relu|mean', '-relu+|mean', 'relu+|mean', 'relu|mean', 'relu+|last', 'relu|last', '-relu+|last', 'relu+|last']
     # ['w1mean', 'relu|w1mean', '-relu|w1mean']  # ['-relu+|mean', '-relu+|last', '-relu|last']
     word_agg_schemes = ['mean']

@@ -6,7 +6,7 @@ import json
 import re
 from pathlib import Path
 import pandas as pd
-import plotly.express as px
+from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import numpy as np
 
@@ -25,7 +25,7 @@ def parse_segment(segment) -> typing.List[str]:
     kwargs = [kwarg for kwarg in segment.split(',') if kwarg]
     args = {}
     for kwarg_str in kwargs:
-        k,v = kwarg_str.split('=')
+        k, v = kwarg_str.split('=')
         args[k] = v if v != 'None' else None
     return args
 
@@ -66,15 +66,18 @@ def parse_file(fpath: str) -> typing.Dict:
 
 def parse_dir(dirpath: str) -> pd.DataFrame:
     # pd.DataFrame([parse_fname(fname) for fname in os.listdir('lmeval_results')])
-    fnames, mtimes = zip(*[(fentry.name, fentry.stat().st_mtime) for fentry in os.scandir(dirpath) if fentry.is_file() and fentry.name.endswith('.json')])
+    fnames, mtimes = zip(*[(fentry.name, fentry.stat().st_mtime)
+                         for fentry in os.scandir(dirpath) if fentry.is_file() and fentry.name.endswith('.json')])
     return pd.DataFrame([parse_file(f'{dirpath}/{fname}') for fname in fnames])
 
 
 def read_results(dir: str) -> pd.DataFrame:
     df = parse_dir(dir)
-    df = df[[col for col in df.columns if col not in ['batch_size', 'device', 'no_cache', 'bootstrap_iters', 'description_dict']]]
+    df = df[[col for col in df.columns if col not in ['batch_size',
+                                                      'device', 'no_cache', 'bootstrap_iters', 'description_dict']]]
     df = df[df.limit.isna()].assign(pretrained=df.pretrained.fillna('GPT2'))
-    df = df.assign(model_type=df.model.map(lambda model: 'autoregressive' if model == 'gpt2' else (model))).drop(columns='model')
+    df = df.assign(model_type=df.model.map(lambda model: 'autoregressive' if model
+                   == 'gpt2' else (model))).drop(columns='model')
     df = fix_args(df)
     return df
 
@@ -131,11 +134,13 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
     assert metric_cols, f'No metrics found matching {metrics_re}'
     provenance_cols = {'mtime', 'filename'}
     selected_cols = task_cols | model_cols | metric_cols | provenance_cols
-    assert selected_cols <= set(df.columns), f'Check that task_cols, model_cols, metri_cols and provenance_cols are all <= df.columns'
+    assert selected_cols <= set(
+        df.columns), f'Check that task_cols, model_cols, metri_cols and provenance_cols are all <= df.columns'
     if selected_cols < set(df.columns):
         print(f'Following columns will be dropped: {set(df.columns) - selected_cols}')
     if take_last:
         groupby_cols = (model_cols | task_cols)
+
         def _take_last(_df: pd.DataFrame) -> pd.DataFrame:
             if isinstance(_df, pd.Series):
                 raise ValueError
@@ -154,7 +159,8 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
                 metric_values.append(_task_metrics_sr)
             # rows = [_df[task_metric_cols[task]].dropna().iloc[0] for task in tasks]
             return pd.concat(metric_values)
-        df = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False, sort=False).apply(_take_last).dropna(how='all')
+        df = df[list(selected_cols)].groupby(list(groupby_cols), dropna=False,
+                                             sort=False).apply(_take_last).dropna(how='all')
         df = df.reset_index(drop=False)
     else:
         df = df[list(selected_cols)].reset_index(drop=True)
@@ -164,7 +170,7 @@ def task_metrics(df: pd.DataFrame, tasks: typing.List[str], *, sort_metrics=[], 
     return df
 
 
-def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, remove_nonvariables=True, colorscale='cividis'):
+def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, remove_nonvariables=True, colorscale='cividis', title=None):
     if remove_nonvariables:
         cols_to_remove = [col for col in df.columns if df[col].unique().shape[0] <= 1]
         cols_to_keep = [col for col in df.columns if df[col].unique().shape[0] > 1]
@@ -176,22 +182,23 @@ def fig_parcats(df, main_metric, exclude_cols=[], *, height=700, width=None, rem
         df = df
     fig = go.Figure(
         go.Parcats(arrangement='freeform', hoveron='color',
-            dimensions=[{'label': col, 'values': df[col]} for col in df.columns if col not in exclude_cols + [main_metric]] + [{'label': main_metric, 'values': df[main_metric]}],
-            line={
-                'color': df[main_metric],
-                'coloraxis': 'coloraxis'
-                }
-            )
+                   dimensions=[{'label': col, 'values': df[col]} for col in df.columns if col not in exclude_cols
+                               + [main_metric]] + [{'label': main_metric, 'values': df[main_metric]}],
+                   line={
+                       'color': df[main_metric],
+                       'coloraxis': 'coloraxis'
+                   },
+                   ),
+
     )
-    # fig = px.parallel_categories(df, color='hellaswag:acc', dimensions=[col for col in df_hellaswag.columns if not col.startswith('hellaswag:acc')] + ['hellaswag:acc'],
-    #                              color_continuous_scale=colorscale, height=700)
     layout_args = {
         'height': height,
         'coloraxis': {'colorscale': colorscale,
                       'showscale': True,
                       'colorbar': {'lenmode': 'fraction', 'len': 1.0, 'yanchor': 'top', 'y': 1.0}
                       },
-        }
+        'title': title
+    }
     if width is not None:
         layout_args['width'] = width
     fig.update_layout(layout_args)
@@ -224,3 +231,72 @@ def compare_metrics(df1, df2):
 
     print(f'new_better = {(new_better/len(index))*100:.2f}%, old_better = {(old_better/len(index))*100:.2f}%, equal = {(num_equal/len(index))*100:.2f}%')
     print(f'new better by {np.mean(new_better_by):.3f}, old better by {np.mean(old_better_by):.3f} absolute % points')
+
+
+def plot_hellaswag_pct2(df1, df2=None, num_fewshots=[0, 5], fig=None, col=None, row=None):
+    if fig is None:
+        fig = go.Figure(layout=dict(  # yaxis_range=[0, 1.1],
+            yaxis_title='Normalized Hellaswag Score'))
+    for num_few_shot in num_fewshots:
+        for encoding_scheme in df1.encoding_scheme.unique():
+            _df = df1[(df1.num_fewshot == num_few_shot) & (df1.encoding_scheme == encoding_scheme)]
+            trace_name = f'K={num_few_shot}, {encoding_scheme if encoding_scheme != "sentence_level_segmentation" else "segment_sentences"}'
+            if len(_df) > 0:
+                fig.add_trace(go.Bar(x=_df.pretrained, y=_df['hellaswag:acc:pct'], name=trace_name), col=col, row=row)
+            if df2 is not None:
+                _df = df2[(df2.num_fewshot == num_few_shot) & (df2.encoding_scheme == encoding_scheme)]
+                if len(_df) > 0:
+                    fig.add_trace(go.Scatter(x=_df.pretrained, y=_df['hellaswag:acc:pct'],
+                                             name=('(best ablation) ' + trace_name),
+                                             mode='lines+markers',
+                                             line=dict(dash='dot')),
+                                  col=col, row=row)
+    return fig
+
+
+def plot_hellaswag_pct(df1, df2=None, num_fewshots=[0, 5], fig=None, col=None, row=None):
+    if fig is None:
+        fig = go.Figure(layout=dict(  # yaxis_range=[0, 1.1],
+            yaxis_title='Normalized Hellaswag Score'))
+    for num_few_shot in num_fewshots:
+        for encoding_scheme in df1.encoding_scheme.unique():
+            _df = df1[(df1.num_fewshot == num_few_shot) & (df1.encoding_scheme == encoding_scheme)]
+            trace_name = f'K={num_few_shot}, {encoding_scheme if encoding_scheme != "sentence_level_segmentation" else "segment_sentences"}'
+            if len(_df) > 0:
+                fig.add_trace(go.Line(x=_df.pretrained, y=_df['hellaswag:acc:pct'],
+                              name=trace_name, line=dict(width=1)), col=col, row=row)
+            if df2 is not None:
+                _df = df2[(df2.num_fewshot == num_few_shot) & (df2.encoding_scheme == encoding_scheme)]
+                if len(_df) > 0:
+                    fig.add_trace(go.Scatter(x=_df.pretrained, y=_df['hellaswag:acc:pct'],
+                                             name=('(best ablation) ' + trace_name),
+                                             mode='lines+markers',
+                                             line=dict(dash='dot')),
+                                  col=col, row=row)
+    return fig
+
+
+def subplot_hellaswag_pct(df, width=1000, height=300):
+    fig = make_subplots(rows=2,
+                        #   row_heights=ps.row_dist,
+                        cols=1,
+                        column_widths=[width],
+                        row_heights=[height, height],
+                        shared_yaxes='all',
+                        shared_xaxes='all',  # if stack_heads else False,
+                        #   horizontal_spacing=ps.horizontal_spacing,
+                        #   vertical_spacing=ps.vertical_spacing,
+                        #   column_titles=[head_name(i) for i in range(ps.num_heads)] if (
+                        #       not stack_heads and ps.num_heads > 1) else [W_name] if _is_standalone else [f'${T_spec["latexName"]}$'],
+                        row_titles=['K=0', 'K=5'],
+                        y_title='Normalized Hellaswag Score',
+                        #   specs=ps.subplot_specs,
+                        #   x_title=xaxis_title
+                        )
+
+    fig.update_yaxes(range=[0, 1.], dtick=0.1, row=1, col=1)
+    fig.update_yaxes(range=[0, 1.], dtick=0.1, row=2, col=1)
+    # fig.update_layout(coloraxis=dict(colorscale='cividis_r'))
+    plot_hellaswag_pct2(df, num_fewshots=[0], fig=fig, row=1, col=1)
+    plot_hellaswag_pct2(df, num_fewshots=[5], fig=fig, row=2, col=1)
+    return fig

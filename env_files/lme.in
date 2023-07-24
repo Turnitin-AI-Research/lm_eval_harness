@@ -60,5 +60,6 @@ autopep8
 ipykernel
 ipython
 plotly
+kaleido
 nbformat
 fire

@@ -150,8 +150,8 @@ def run_parallel(*,
                 continue
         else:
             if task.startswith('hellaswag'):
-                if encoding_scheme in ['segment_each_example']:
-                    encoding_scheme = 'concat_each_example'
+                # if encoding_scheme in ['segment_each_example']:
+                #     encoding_scheme = 'concat_each_example'
                 if encoding_scheme == 'concat_all_examples':
                     segment_agg_scheme = None
                     example_agg_scheme = None
