@@ -1,9 +1,12 @@
+import typing
 import argparse
 import os
 import json
 import logging
+from pathlib import Path
 import fnmatch
 import hashlib
+import torch
 
 from lm_eval import tasks, evaluator
 
@@ -58,7 +61,30 @@ def pattern_match(patterns, source_list):
     return list(task_names)
 
 
+def results_fpath(*args) -> typing.Optional[str]:
+    args = parse_args(*args)
+    if args.tasks is None:
+        task_names = tasks.ALL_TASKS
+    else:
+        task_names = pattern_match(args.tasks.split(","), tasks.ALL_TASKS)
+    if args.output_path:
+        fpath = str(Path(args.output_path).resolve())
+    elif args.output_dir:
+        model_args = args.model_args.replace("/", ":")
+        fname = (f"model={args.model}"
+                 f"|tasks={','.join(task_names)}"
+                 f"|model_args:{model_args}|task_args:{args.task_args}"
+                 f"|num_fewshot={args.num_fewshot}|limit={args.limit}")
+        fname = hashlib.shake_128(bytes(fname, encoding='utf-8')).hexdigest(20)
+        fpath = f"{args.output_dir}/{fname}.json"
+        fpath = str(Path(fpath).resolve())
+    else:
+        fpath = None
+    return fpath
+
+
 def main(*args):
+    orig_args = args
     args = parse_args(*args)
 
     assert not args.provide_description  # not implemented
@@ -73,7 +99,7 @@ def main(*args):
     else:
         task_names = pattern_match(args.tasks.split(","), tasks.ALL_TASKS)
 
-    print(f"Selected Tasks: {task_names}")
+    print(f"Selected Tasks: {task_names}, args: {args}")
 
     description_dict = {}
     if args.description_dict_path:
@@ -98,23 +124,10 @@ def main(*args):
     dumped = json.dumps(results, indent=2)
     print(dumped)
 
-    if args.output_path:
-        with open(args.output_path, "w") as f:
-            f.write(dumped)
-        fpath = args.output_path
-    elif args.output_dir:
-        os.makedirs(args.output_dir, exist_ok=True)
-        model_args = args.model_args.replace("/", ":")
-        fname = (f"model={results['config']['model']}"
-                 f"|tasks={','.join(task_names)}"
-                 f"|model_args:{model_args}|task_args:{args.task_args}"
-                 f"|num_fewshot={args.num_fewshot}|limit={args.limit}")
-        fname = hashlib.shake_128(bytes(fname, encoding='utf-8')).hexdigest(20)
-        fpath = f"{args.output_dir}/{fname}.json"
+    fpath = results_fpath(*orig_args)
+    if fpath is not None:
         with open(fpath, "wt", encoding='utf-8') as f:
             f.write(dumped)
-    else:
-        fpath = None
 
     print(
         f"{args.model} ({args.model_args}), limit: {args.limit}, provide_description: {args.provide_description}, "

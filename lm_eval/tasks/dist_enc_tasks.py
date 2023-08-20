@@ -1,13 +1,36 @@
 """Task modifications for distributed encoding"""
-from typing import List, Optional, Type, Dict, Union
+from typing import List, Optional, Type, Dict, Tuple
 from collections import UserDict
 import re
-import torch
+import numpy as np
 import nltk
 from lm_eval.base import Task, rf
 from lm_eval.metrics import mean
 from lm_eval.tasks import wsc273
 from . import hellaswag, webqs
+
+SENT_SEP = re.compile(r'(\.(?=\s+))')
+
+
+def sent_tokenize(text: str) -> List[str]:
+    """
+    Sentence tokenizer that maintains leading whitespace in text. This is a poor man's version since Mr. Smith will
+    be broken into two sentences 'Mr.' and ' Smith', which is not what we want.
+    """
+    ret_splits = None
+    if text:
+        splits = SENT_SEP.split(text)
+        if len(splits) > 1:
+            l = len(splits)
+            ret_splits = [splits[2*i] + splits[2*i+1] for i in range(l // 2)]
+            if l % 2:
+                ret_splits.append(splits[-1])
+        else:
+            ret_splits = splits
+    else:
+        ret_splits = [text]
+
+    return ret_splits
 
 
 class SegmentedSample(UserDict):
@@ -43,28 +66,20 @@ class DistEncTaskMixin:
     Mixin for Distributed Encoding Task.
     Refer to new_multiple_choice_task.py for software design context.
     """
-
-    def __init__(self, *args, encoding_scheme: str = 'concat_all_examples', task_type: Optional[str] = None, **kwargs) -> None:
+    # TODO: encoding_scheme default was mean. Need to retest with absent values
+    def __init__(self, *args, encoding_scheme: str = None, task_type: Optional[str] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.ENCODING_SCHEME: str = encoding_scheme  # passed in via config
         # Delimiter separating few-shot examples. Override this in subclass' constructor
         self.EXAMPLE_DELIMITER: str = '\n\n'
-        # Delimiter separating segments of one few-shot example. Leave None if the subclass will only have one segment when cross-encoding.
-        self.SEGMENT_DELIMITER: Optional[str] = None
-        # Delimiter between question and [answer-hint +] answer. Set in subclass.
-        self.QA_DELIMITER: str = None
-        # Quesiton hint. Set in subclass if task has question-hint e.g. 'Question:'
-        self.QUESTION_HINT: Optional[str] = None
-        # Question hint split into sentences needed for sentence-level decoding. Set in subclass as needed.
-        self.QUESTION_HINT_SENTS: Optional[str] = None
-        # Delimiter between question-hint and question. Set in subclass if the task has question hint.
-        self.HINT_QUESTION_DELIMITER: Optional[str] = None
+        # Delimiter between question and answer-hint only if answer-hint exists; set to empty string otherwise. Override in subclass.
+        self.QA_DELIMITER: str = ''
         # Answer hint. Set in subclass if task has answer-hint. e.g. 'Answer:""
-        self.ANSWER_HINT: Optional[str] = None
-        # Answer hint split into sentences needed for sentence-level decoding. Set in subclass as needed.
-        self.ANSWER_HINT_SENTS: Optional[str] = None
-        # Delimiter between answer-hint and answer. Set in subclass if the task has answer hint.
-        self.HINT_ANSWER_DELIMITER: Optional[str] = None
+        self.ANSWER_HINT: str = ''
+        # Answer hint split into sentences needed for sentence-level decoding. Override in subclass.
+        self.ANSWER_HINT_SENTS: List[str] = []
+        # Prefix to the choice / answer / completion. Override in subclass.
+        self.HINT_ANSWER_DELIMITER: str = ' '
         # Task-type: 'gen' or None. Automatically set by factory function: make_gen_class
         self.TASK_TYPE = task_type
         self.KWARGS = kwargs
@@ -75,7 +90,9 @@ class DistEncTaskMixin:
     def verify_config(self):
         """Verify arguments collected from various mixins and objects"""
         assert self.EXAMPLE_DELIMITER is not None
-        assert self.QA_DELIMITER is not None
+        assert self.HINT_ANSWER_DELIMITER is not None
+        assert self.ANSWER_HINT is not None
+        assert self.ANSWER_HINT_SENTS is not None
         assert self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'cross_encoding',
                                         'segment_each_example', 'merge_all_segments', 'sentence_level_segmentation']
         assert self.TASK_TYPE in [None, 'gen']
@@ -88,72 +105,47 @@ class DistEncTaskMixin:
     def _prepare_doc(self, doc: SegmentedSample) -> SegmentedSample:
         """Reorganize doc based on task parameters"""
         out_doc = doc.copy()
+        self.answer_hint_w_prefix = self.QA_DELIMITER + self.ANSWER_HINT
+        out_doc['choices'] = [self.HINT_ANSWER_DELIMITER + choice for choice in doc['choices']]
         if self.ENCODING_SCHEME in ['concat_all_examples', 'concat_each_example', 'cross_encoding'] and (len(doc['segments']) > 1):
-            out_doc['segments'] = [self.SEGMENT_DELIMITER.join(doc['segments'])]
+            out_doc['segments'] = [''.join(doc['segments'])]
         elif self.ENCODING_SCHEME == 'sentence_level_segmentation':
-            out_doc['choices_sents'] = [nltk.tokenize.sent_tokenize(choice) for choice in out_doc['choices']]
-            out_doc['answer_hint_sents'] = self.ANSWER_HINT_SENTS if self.ANSWER_HINT_SENTS is None else []
-        # Prepend choices with appropraite separator for generative mode.
-        if self.TASK_TYPE == 'gen' or self.ENCODING_SCHEME == 'cross_encoding':
-            if not self.ANSWER_HINT:
-                out_doc['gen_choices'] = [(self.QA_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
+            out_doc['segments'] = [sentence for segment in out_doc['segments'] for sentence in sent_tokenize(segment)]
+            out_doc['choices_sents'] = [sent_tokenize(choice) for choice in out_doc['choices']]
+            if self.ANSWER_HINT_SENTS:
+                self.answer_hint_sents_w_prefix = (
+                    [self.QA_DELIMITER + self.ANSWER_HINT_SENTS[0]] + self.ANSWER_HINT_SENTS[1:])
             else:
-                out_doc['gen_choices'] = [(self.HINT_ANSWER_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
+                self.answer_hint_sents_w_prefix = []
         return out_doc
 
-    def _answer_text(self, doc: Dict, *, choice: Optional[int] = None) -> str:
-        """Given a choice number, return a formatted answer text along with QA-delimiter prefix"""
-        if 'answer_hint' not in doc:  # sentence continuation
-            answer = '' if choice is None else self.QA_DELIMITER + doc['choices'][choice]
-        else:  # Separate answer section
-            answer = self.QA_DELIMITER + doc['answer_hint']
-            if choice is not None:
-                answer = (answer + self.HINT_ANSWER_DELIMITER + doc['choices'][choice])
-        return answer
-
-    def _answer_segment(self, doc: Dict, *, choice: Optional[int] = None) -> str:
-        """Given a choice number, return a formatted answer segment without QA separator"""
-        if 'answer_hint' not in doc:  # sentence continuation
-            answer = '' if choice is None else doc['choices'][choice]
-        else:  # Separate answer section
-            answer = doc['answer_hint']
-            if choice is not None:
-                answer = (answer + self.HINT_ANSWER_DELIMITER + doc['choices'][choice])
-        return answer
-
-    def _answer_segments(self, doc: Dict, *, choice: Optional[int] = None) -> str:
-        """Given a choice number, return list of answer segments without segment separator"""
-        if self.ENCODING_SCHEME != 'sentence_level_segmentation':
-            seg = self._answer_segment(doc, choice=choice)
-            # Segment can be an empty string. Remove it in that case.
-            return [seg] if seg else []
+    def _answer_text(self, doc: Dict, *, choice_idx: Optional[int] = None) -> str:
+        """Given a choice_idx number, return a formatted answer text along with QA-delimiter prefix"""
+        if choice_idx is None:
+            return self.answer_hint_w_prefix
         else:
-            # nltk.tokenize.sent_tokenize(doc['choices'][choice])
-            sents = [] if choice is None else doc['choices_sents'][choice]
-            if 'answer_hint' not in doc:  # sentence continuation
-                pass
-            else:  # Separate answer section
-                sents = doc['answer_hint_sents'] + sents
-            return sents
+            return self.answer_hint_w_prefix + doc['choices'][choice_idx]
 
-    def _make_fewshotex(self, doc: SegmentedSample, *,
-                        exclude_answer: bool = False) -> SegmentedSample:
+    def _answer_sents(self, doc: Dict, *, choice_idx: Optional[int] = None) -> str:
+        """Given a choice_idx number, return list of answer segments without segment separator"""
+        assert self.ENCODING_SCHEME == 'sentence_level_segmentation'
+        return self.answer_hint_sents_w_prefix + ([] if choice_idx is None else doc['choices_sents'][choice_idx])
+
+    def _make_fewshotex(self, doc: SegmentedSample, *, exclude_answer: bool = False) -> SegmentedSample:
         """
         * Reorganize the doc as one fewshot example.
         * Remove all unnecessary info.
         """
-        # doc = self.process_segments(doc)
+        choice_idx = None if exclude_answer else doc['gold_indices'][0]
         if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding', 'concat_each_example']:
-            # assert len(doc['segments']) == 1
-            context = self.SEGMENT_DELIMITER.join(doc['segments']) if len(doc['segments']) > 1 else doc['segments'][0]
-            answer = self._answer_text(doc, choice=None if exclude_answer else doc['gold_indices'][0])
-            out_segments = [context + answer]
+            assert len(doc['segments']) == 1
+            # context = ''.join(doc['segments']) if len(doc['segments']) > 1 else doc['segments'][0]
+            question = doc['segments'][0]
+            out_segments = [question + self._answer_text(doc, choice_idx=choice_idx)]
         elif self.ENCODING_SCHEME in ['segment_each_example', 'merge_all_segments']:
-            answer = [self._answer_segment(doc, choice=None if exclude_answer else doc['gold_indices'][0])]
-            out_segments = doc['segments'] + answer
+            out_segments = doc['segments'] + [self._answer_text(doc, choice_idx=choice_idx)]
         elif self.ENCODING_SCHEME == 'sentence_level_segmentation':
-            answer_sents = self._answer_segments(doc, choice=None if exclude_answer else doc['gold_indices'][0])
-            out_segments = doc['context_sents'] + answer_sents
+            out_segments = doc['segments'] + self._answer_sents(doc, choice_idx=choice_idx)
         else:
             raise ValueError(f'Invalid ENCODING_SCHEME: {self.ENCODING_SCHEME}')
         # Sometimes out_segments can be empty strings. Remove those.
@@ -165,23 +157,7 @@ class DistEncTaskMixin:
         * Reorganize the doc as one fewshot example without the answer. This is meant for the query example only.
         * Remove all unnecessary info.
         """
-        # doc = self.process_segments(doc)
-        if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding', 'concat_each_example']:
-            # assert len(doc['segments']) == 1
-            context = self.SEGMENT_DELIMITER.join(doc['segments']) if len(doc['segments']) > 1 else doc['segments'][0]
-            answer = self._answer_text(doc, choice=None)
-            out_segments = [context + answer]
-        elif self.ENCODING_SCHEME in ['segment_each_example', 'merge_all_segments']:
-            answer = [self._answer_segment(doc, choice=None)]
-            out_segments = doc['segments'] + answer
-        elif self.ENCODING_SCHEME == 'sentence_level_segmentation':
-            answer_sents = self._answer_segments(doc, choice=None)
-            out_segments = doc['context_sents'] + answer_sents
-        else:
-            raise ValueError(f'Invalid ENCODING_SCHEME: {self.ENCODING_SCHEME}')
-        # Sometimes out_segments can be empty strings. Remove those.
-        out_doc = SegmentedSample(task=doc.task, segments=[seg for seg in out_segments if seg])
-        return out_doc
+        return self._make_fewshotex(doc, exclude_answer=True)
 
     def _merge_fewshotex(self, doc: SegmentedSample, examples: List[SegmentedSample]) -> SegmentedSample:
         """Process a set of fewshot examples:
@@ -190,19 +166,9 @@ class DistEncTaskMixin:
         elif ENCODING_SCHEME == 'merge_all_segments':
             aggregate all segments into one list
         """
-        if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding']:
-            for example in examples:
-                assert len(example['segments']
-                           ) == 1, f"# of segments = {len(example['segments'])}, config={self.config}"
         segments = [segment for example in examples for segment in example['segments']]
-        if self.ENCODING_SCHEME in ['concat_all_examples']:
-            return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
-        elif self.ENCODING_SCHEME == 'cross_encoding':
-            # if 'answer_hint' not in doc:
-            #     choices = [(self.QA_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
-            # else:
-            #     choices = [(self.HINT_ANSWER_DELIMITER + doc['choices'][i]) for i, _ in enumerate(doc['choices'])]
-            # return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)], choices=choices)
+        if self.ENCODING_SCHEME in ['concat_all_examples', 'cross_encoding']:
+            assert all(len(example['segments']) == 1 for example in examples)
             return SegmentedSample(task=doc.task, segments=[self.EXAMPLE_DELIMITER.join(segments)])
         elif self.ENCODING_SCHEME == 'merge_all_segments':
             return SegmentedSample(task=doc.task, segments=segments)
@@ -319,21 +285,20 @@ class DistEncTaskMixin:
 
         # return lls
 
-    def process_results(self, doc: SegmentedSample, results: List[torch.Tensor]):
+    def process_results(self, doc: SegmentedSample, results: Tuple[Dict]):
         golds = doc["gold_indices"]
         # Framework adds yet another layer of aggregation on top of results. Unwind that.
         assert len(results) == 1
         results = results[0]
         scores = results['scores']
-        acc = 1.0 if torch.argmax(scores) in golds else 0.0
+        acc = 1.0 if np.argmax(scores) in golds else 0.0
         ret_dict = {
             "acc": acc,
             "rand_acc": 1. / len(scores)
         }
         if self.ENCODING_SCHEME == 'cross_encoding' or self.TASK_TYPE == 'gen':
-            choice_len = torch.tensor([len(choice) for choice in doc['choices']],
-                                      device=scores.device, dtype=torch.long)
-            acc_norm = 1.0 if torch.argmax(scores / choice_len) in golds else 0.0
+            choice_len = np.array([len(choice) for choice in doc['choices']])
+            acc_norm = 1.0 if np.argmax(scores / choice_len) in golds else 0.0
             ret_dict["acc_norm"] = acc_norm
         if 'is_exact_match' in results:
             ret_dict['em'] = 1.0 if any(results['is_exact_match'][idx] for idx in doc['gold_indices']) else 0.0
@@ -390,24 +355,18 @@ class HellaSwagDist(DistEncTaskMixin, hellaswag.HellaSwag):
     def __init__(self, *args, **kwargs) -> None:
         # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
         super().__init__(*args, **kwargs)
-        self.EXAMPLE_DELIMITER: str  # = '\n\n'
-        self.QA_DELIMITER = ' '
-        # self.SEGMENT_DELIMITER = None
-        # self.QUESTION_HINT = None
-        # self.ANSWER_HINT = None
-        # self.HINT_QUESTION_DELIMITER = None
-        # self.HINT_ANSWER_DELIMITER = None
-        # self.ANSWER_HINT_SENTS = None
-        # self.QUESTION_HINT_SENTS = None
-
+        self.EXAMPLE_DELIMITER: str = '\n\n'
+        self.QA_DELIMITER = ''
+        self.ANSWER_HINT = ''
+        self.HINT_ANSWER_DELIMITER = ' '
+        self.ANSWER_HINT_SENTS = []
         self.verify_config()
 
     def _process_doc(self, doc):
         out_doc = SegmentedSample(super()._process_doc(doc), task=self)
         # Segments (including hints) so that they may be individually encoded (e.g 'Question: <question text>')
         out_doc['segments'] = [out_doc['query']]
-        if self.ENCODING_SCHEME == 'sentence_level_segmentation':
-            out_doc['context_sents'] = nltk.tokenize.sent_tokenize(out_doc['query'])
+        # out_doc['choices'] is already set by superclass
         # Indices of one or more correct targets from out_doc['choices']
         out_doc['gold_indices'] = [out_doc['gold']]
         return self._prepare_doc(out_doc)
@@ -437,9 +396,8 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
     def __init__(self, *args, **kwargs) -> None:
         # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
         super().__init__(*args, **kwargs)
-        self.EXAMPLE_DELIMITER: str  # = '\n\n'
+        self.EXAMPLE_DELIMITER: str = '\n\n'
         self.QA_DELIMITER = '\n'
-        self.SEGMENT_DELIMITER = None
         self.QUESTION_HINT = 'Question:'
         self.ANSWER_HINT = 'Answer:'
         self.HINT_QUESTION_DELIMITER = ' '
@@ -461,17 +419,16 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         # Extract all hints so that they may be optionally individually encoded without text
         out_doc['question_hint'] = self.QUESTION_HINT
         out_doc['answer_hint'] = self.ANSWER_HINT
-        # Segments (including hints) so that they may be individually encoded (e.g 'Question: <question text>')
-        out_doc['segments'] = [self.QUESTION_HINT + self.HINT_QUESTION_DELIMITER + out_doc['question']]
+        # Question / Context segments (including hints) so that they may be individually encoded (e.g 'Question: <question text>')
+        question = self.QUESTION_HINT + self.HINT_QUESTION_DELIMITER + out_doc['question']
+        out_doc['segments'] = [question]
         out_doc['choices'] = doc['answers']
-        if self.ENCODING_SCHEME == 'sentence_level_segmentation':
-            out_doc['context_sents'] = self.QUESTION_HINT_SENTS + nltk.tokenize.sent_tokenize(out_doc['question'])
         # All out_doc['choices'] are gold targets
         out_doc['gold_indices'] = list(range(len(out_doc['choices'])))
         out_doc['gold'] = None  # Indicates we have more than one possible targets
         return self._prepare_doc(out_doc)
 
-    def process_results(self, doc: SegmentedSample, results: List[torch.Tensor]):
+    def process_results(self, doc: SegmentedSample, results):
         """All choices in the test set are gold targets"""
         metrics = super().process_results(doc, results)
         # All choices are legitimate targets, therefore acc should be 1.0
@@ -482,44 +439,45 @@ class WebQsDist(DistEncTaskMixin, webqs.WebQs):
         }
 
 
-class DistEncTaskMixin2(DistEncTaskMixin):
-    """Specializtion of DistEncTaskMixin for cases where there are multiple contexts instead of multiple targets."""
+# class DistEncTaskMixin2(DistEncTaskMixin):
+#     """
+#     Specializtion of DistEncTaskMixin for cases where there are multiple contexts instead of multiple targets.
+#     This class is still under construction.
+#     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+#     def __init__(self, *args, **kwargs) -> None:
+#         super().__init__(*args, **kwargs)
 
-    def _make_contextlist(self, doc: SegmentedSample, fewshotex: List[SegmentedSample],
-                          description: Optional[SegmentedSample]) -> List[List[SegmentedSample]]:
-        """Return multiple context lists instead of one"""
-        description_list = [] if description is None else [description]
-        contexts = []
-        for ctx_choice in doc['ctx_choices']:
-            _doc = doc.copy()
-            _doc['segments'] = [ctx_choice]
-            context_list = description_list + [
-                self._make_fewshotex(example) for example in fewshotex] + [
-                self._make_fewshot_query(self._remove_label(_doc))]
+#     def _make_contextlist(self, doc: SegmentedSample, fewshotex: List[SegmentedSample],
+#                           description: Optional[SegmentedSample]) -> List[List[SegmentedSample]]:
+#         """Return multiple context lists instead of one"""
+#         description_list = [] if description is None else [description]
+#         contexts = []
+#         for ctx_choice in doc['ctx_choices']:
+#             _doc = doc.copy()
+#             _doc['segments'] = [ctx_choice]
+#             context_list = description_list + [
+#                 self._make_fewshotex(example) for example in fewshotex] + [
+#                 self._make_fewshot_query(self._remove_label(_doc))]
 
-            if self.ENCODING_SCHEME in ['concat_all_examples', 'merge_all_segments', 'cross_encoding']:
-                # Merge all samples into one
-                context_list = [self._merge_fewshotex(_doc, context_list)]
-            contexts.append(context_list)
-        return contexts
+#             if self.ENCODING_SCHEME in ['concat_all_examples', 'merge_all_segments', 'cross_encoding']:
+#                 # Merge all samples into one
+#                 context_list = [self._merge_fewshotex(_doc, context_list)]
+#             contexts.append(context_list)
+#         return contexts
 
 
-class Wsc273Dist(DistEncTaskMixin2, wsc273.WinogradSchemaChallenge273):
-    def __init__(self, *args, **kwargs) -> None:
-        # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
-        super().__init__(*args, **kwargs)
-        # self.SEGMENT_DELIMITER: str = '\n'
-        # self.ANSWER_DELIMITER: str = ' '
-        # self.EXAMPLE_DELIMITER: str = '\n\n'
-        self.verify_config()
+# class Wsc273Dist(DistEncTaskMixin2, wsc273.WinogradSchemaChallenge273):
+#     """This class is still under construction."""
+#     def __init__(self, *args, **kwargs) -> None:
+#         # Super task classes are not passed any arguments by the harness but we do that here just for future proofing
+#         super().__init__(*args, **kwargs)
+#         self.verify_config()
 
-    def _process_doc(self, doc):
-        doc = SegmentedSample(super()._process_doc(doc), task=self)
-        doc['segments'] = [self.doc_to_text(doc)]
-        doc['choices'] = [self.partial_target(doc)]
-        doc['gold_indices'] = [0]
-        doc['ctx_choices'] = [self.partial_context(doc, option) for option in doc['options']]
-        doc['ctx_gold_indices'] = [doc['label']]
+#     def _process_doc(self, doc):
+#         doc = SegmentedSample(super()._process_doc(doc), task=self)
+#         doc['segments'] = [self.doc_to_text(doc)]
+#         doc['choices'] = [self.partial_target(doc)]
+#         doc['gold_indices'] = [0]
+#         doc['ctx_choices'] = [self.partial_context(doc, option) for option in doc['options']]
+#         doc['ctx_gold_indices'] = [doc['label']]

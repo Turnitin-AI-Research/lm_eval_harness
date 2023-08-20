@@ -1,7 +1,7 @@
 env
 *.pyc
-data/
 lm_cache
+.cache/
 .idea
 .venv*/
 input_examples*/
@@ -10,3 +10,6 @@ lmeval_results*/
 .ipynb_checkpoints/
 lm_debug/
 *.out
+tb_log/
+trace_log/
+fil-result?/

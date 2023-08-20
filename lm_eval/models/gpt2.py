@@ -1,9 +1,19 @@
-from optparse import Option
 from typing import List, Optional
 import transformers
 import torch
 from lm_eval.base import BaseLM
 from lm_eval.models.dist_enc_model import DistEncSimMixin, DistEncGenMixin
+
+MAX_MAX_LEN = 10240
+
+
+def str_to_bool(arg: Optional[str]) -> bool:
+    """Convert parameter string to bool"""
+    if arg is None:
+        return False
+    arg = arg.lower()
+    assert arg in ['true', 'false']
+    return arg == 'true'
 
 
 class HFLM(BaseLM):
@@ -15,18 +25,24 @@ class HFLM(BaseLM):
         subfolder=None,
         tokenizer=None,
         batch_size=1,
+        PARALLELIZE: Optional[str] = None
     ):
         super().__init__()
 
         assert isinstance(device, str)
         assert isinstance(pretrained, str)
         assert isinstance(batch_size, int)
+        cache_dir = None
 
+        self.PARALLELIZE: bool = str_to_bool(PARALLELIZE)
         if device:
             if device not in ["cuda", "cpu"]:
                 device = int(device)
             self._device = torch.device(device)
-            print(f"Using device '{device}'")
+            if not self.PARALLELIZE:
+                print(f"Using device '{device}'")
+            else:
+                print("setting device_map='auto'")
         else:
             print("Device not specified")
             print(f"Cuda Available? {torch.cuda.is_available()}")
@@ -35,12 +51,30 @@ class HFLM(BaseLM):
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )
+        if self.PARALLELIZE:
+            assert device in [0, '0', 'cuda:0'], f'Device ({device}) must be set to "0" with PARALLELIZE model-arg'
 
         # TODO: update this to be less of a hack once subfolder is fixed in HF
-        self.gpt2 = transformers.AutoModelForCausalLM.from_pretrained(
-            pretrained,
-            revision=revision + ("/" + subfolder if subfolder is not None else ""),
-        ).to(self.device)
+        try:
+            self.gpt2 = transformers.AutoModelForCausalLM.from_pretrained(
+                pretrained,
+                revision=revision + ("/" + subfolder if subfolder is not None else ""),
+                device_map='auto' if self.PARALLELIZE else None,
+                cache_dir=cache_dir,
+                # trust_remote_code=True
+            )
+        except ValueError:
+            self.gpt2 = transformers.AutoModelForSeq2SeqLM.from_pretrained(
+                pretrained,
+                device_map='balanced' if self.PARALLELIZE else None,
+                cache_dir=cache_dir,
+                # trust_remote_code=True
+            )
+            if self.PARALLELIZE:
+                # self.gpt2.parallelize()
+                self._device = 0
+        if not self.PARALLELIZE:
+            self.gpt2 = self.gpt2.to(self.device)
         self.gpt2.eval()
 
         # pretrained tokenizer for neo is broken for now so just hard-coding this to gpt2
@@ -49,11 +83,13 @@ class HFLM(BaseLM):
                 pretrained if tokenizer is None else tokenizer,
                 revision=revision,
                 subfolder=subfolder,
+                cache_dir=cache_dir
             )
         else:
             self.tokenizer = transformers.AutoTokenizer.from_pretrained(
                 pretrained if tokenizer is None else tokenizer,
-                revision=revision
+                revision=revision,
+                cache_dir=cache_dir
             )
 
         assert isinstance(
@@ -63,8 +99,12 @@ class HFLM(BaseLM):
                 transformers.GPT2TokenizerFast,
                 transformers.T5Tokenizer,
                 transformers.T5TokenizerFast,
+                transformers.BloomTokenizerFast,
+                transformers.GPTNeoXTokenizerFast
             ),
-        ), "this tokenizer has not been checked for compatibility yet!"
+        ), f"this tokenizer ({type(self.tokenizer)}) has not been checked for compatibility yet!"
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         self.vocab_size = self.tokenizer.vocab_size
 
@@ -95,6 +135,7 @@ class HFLM(BaseLM):
     def max_length(self):
         try:
             return self.gpt2.config.n_ctx
+
         except AttributeError:
             # gptneoconfig doesn't have n_ctx apparently
             return self.gpt2.config.max_position_embeddings

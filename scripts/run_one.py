@@ -3,18 +3,15 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 from main import main
 
 _args = [
-    "--device", "7",
+    "--device", "1",
     "--output_dir", "lmeval_results_debug/",
     # "--limit", "1000",
-    "--tasks", 'hellaswag_d',
-    "--model", 'dist_sim',
+    "--tasks", 'hellaswag_dg',
+    "--model", 'dist_gen',
     "--no_cache",
     '--num_fewshot', '5',
-    '--task_args', 'encoding_scheme=concat_all_examples',  # merge_all_segments
-    '--model_args', ('WORD_AGG_SCHEME=mean,EXAMPLE_AGG_SCHEME=None,SEGMENT_AGG_SCHEME=None,NORM=layer,SIMILARITY_FUNC=dot_product,pretrained=EleutherAI/gpt-neo-1.3B,'
-                     + 'ENCODING_LAYER=middle'
-                    #  + ',DECODING_SCHEME=steer_vec,STEER_VEC_INJ_LAYERS=10-12,STEER_VEC_INJ_POS=all'
-                     )
+    '--task_args', 'encoding_scheme=cross_encoding',
+    '--model_args', 'pretrained=EleutherAI/gpt-neo-1.3B'
 ]
 
 fpath, results = main(*_args)
