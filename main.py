@@ -128,6 +128,9 @@ def main(*args):
     if fpath is not None:
         with open(fpath, "wt", encoding='utf-8') as f:
             f.write(dumped)
+            print(f'Saved output to {fpath}')
+    else:
+        print('Output will not be saved to file.')
 
     print(
         f"{args.model} ({args.model_args}), limit: {args.limit}, provide_description: {args.provide_description}, "
